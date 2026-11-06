@@ -1,0 +1,12 @@
+{
+  "name": "mo-mods",
+  "owner": {
+    "name": "mechanicMo"
+  },
+  "plugins": [
+    {
+      "name": "chat-hud",
+      "source": "./"
+    }
+  ]
+}

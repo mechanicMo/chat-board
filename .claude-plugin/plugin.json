@@ -1,0 +1,6 @@
+{
+  "name": "chat-hud",
+  "version": "0.1.0",
+  "description": "Each chat reports its own status (question for you, your move, ready to close, working) for the Chat Board window",
+  "types": "./types/index.d.ts"
+}

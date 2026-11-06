@@ -1,0 +1,9 @@
+# Written by Claude Code when it loads the mod: the local tool list, never shared.
+.claude-plugin/types/
+# Swift build output
+window/.build/
+window/.swiftpm/
+# Local notes for whoever is working on it
+SESSION.md
+.DS_Store
+*.log
