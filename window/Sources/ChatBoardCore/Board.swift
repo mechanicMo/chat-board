@@ -25,6 +25,18 @@ public enum Board {
         return result
     }
 
+    // The order to save once the board has shown chats it never placed, so a chat keeps its spot after that
+    // and only a drag moves it. Without this, an unplaced chat jumped to the top each time it got a message.
+    // Ids no longer on the board stay in the saved order, so a chat that comes back keeps its spot. Nil when
+    // every chat on the board is already placed.
+    public static func settledOrder(_ arranged: [Chat], saved: [String]) -> [String]? {
+        let known = Set(saved)
+        guard arranged.contains(where: { !known.contains($0.id) }) else { return nil }
+        let shown = arranged.map(\.id)
+        let showing = Set(shown)
+        return shown + saved.filter { !showing.contains($0) }
+    }
+
     // Moves a whole group, the chat plus its side sessions, to just before another group (or to the end).
     // A side session never leaves its parent. Nil when nothing moves.
     public static func moveGroup(_ chats: [Chat], _ id: String, before target: String?) -> [Chat]? {

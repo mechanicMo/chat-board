@@ -37,6 +37,23 @@ private func make(_ id: String, activeAt: Double = 0, parent: String? = nil, kin
         #expect(Board.arrange(list, order: ["placed"]).map(\.id) == ["new", "old", "placed"])
     }
 
+    @Test func aNewMessageDoesNotMoveAChatOnceTheBoardHasShownIt() throws {
+        let first = Board.arrange([make("a", activeAt: 20), make("b", activeAt: 10)], order: [])
+        let saved = try #require(Board.settledOrder(first, saved: []))
+        #expect(saved == ["a", "b"])
+        // b gets a new message and is now the most recent
+        let later = Board.arrange([make("a", activeAt: 20), make("b", activeAt: 99)], order: saved)
+        #expect(later.map(\.id) == ["a", "b"])
+        #expect(Board.settledOrder(later, saved: saved) == nil)
+    }
+
+    @Test func aBrandNewChatGoesOnTopOnceAndGoneChatsKeepTheirSpot() throws {
+        let list = [make("new", activeAt: 5), make("a"), make("b")]
+        let arranged = Board.arrange(list, order: ["a", "gone", "b"])
+        #expect(arranged.map(\.id) == ["new", "a", "b"])
+        #expect(try #require(Board.settledOrder(arranged, saved: ["a", "gone", "b"])) == ["new", "a", "b", "gone"])
+    }
+
     @Test func childrenFollowTheOrderToo() {
         let list = [make("mom"), make("k1", activeAt: 5, parent: "mom"), make("k2", activeAt: 1, parent: "mom")]
         #expect(Board.arrange(list, order: ["mom", "k2", "k1"]).map(\.id) == ["mom", "k2", "k1"])

@@ -104,7 +104,9 @@ final class BoardModel: ObservableObject {
             }
         }
 
-        let next = Board.arrange(list, order: readOrder())
+        let saved = readOrder()
+        let next = Board.arrange(list, order: saved)
+        if let settled = Board.settledOrder(next, saved: saved) { writeOrder(settled) }
         if next != chats { chats = next }
         settleArchives()
     }
@@ -123,8 +125,13 @@ final class BoardModel: ObservableObject {
     func moveGroup(_ id: String, before target: String?) {
         guard let moved = Board.moveGroup(chats, id, before: target) else { return }
         chats = moved
+        let showing = Set(chats.map(\.id))
+        writeOrder(chats.map(\.id) + readOrder().filter { !showing.contains($0) })
+    }
+
+    private func writeOrder(_ order: [String]) {
         try? FileManager.default.createDirectory(atPath: shareDir, withIntermediateDirectories: true)
-        if let data = try? JSONSerialization.data(withJSONObject: chats.map(\.id)) {
+        if let data = try? JSONSerialization.data(withJSONObject: order) {
             FileManager.default.createFile(atPath: shareDir + "/order.json", contents: data)
         }
     }
