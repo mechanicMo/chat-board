@@ -138,6 +138,7 @@ final class BoardModel: ObservableObject {
 
     // Where each chat's row sits in the window, so a click caught by the panel can find its chat.
     var rowsInWindow: [String: CGRect] = [:]
+    var controlsInWindow: [String: CGRect] = [:]
 
     // True when the click landed on a chat and opened it.
     @discardableResult
@@ -152,7 +153,9 @@ final class BoardModel: ObservableObject {
     // MARK: Search (Cmd+F, or the magnifier in the header)
 
     @Published private(set) var isSearching = false
-    @Published var query = "" { didSet { selected = 0 } }
+    // A new query starts back at the first match. The search box also writes its text back unchanged when Return
+    // is pressed, which used to reset the selection and open the first match instead of the one picked.
+    @Published var query = "" { didSet { if query != oldValue { selected = 0 } } }
     @Published var selected = 0
     // Set by the app: gives the board the keyboard while searching, and hands it back to Claude after.
     var onSearchChange: (Bool) -> Void = { _ in }
@@ -198,7 +201,20 @@ final class BoardModel: ObservableObject {
     func open(_ chat: Chat) {
         seen[chat.id] = Date()
         clicked = (chat.id, Date())
-        if let url = URL(string: "claude://claude.ai/epitaxy/\(chat.localId)") { NSWorkspace.shared.open(url) }
+        guard let url = URL(string: "claude://claude.ai/epitaxy/\(chat.localId)") else { return }
+        // CHAT_BOARD_OPEN_LOG=<file>: the end-to-end tests record the link instead of opening the real app.
+        if let log = ProcessInfo.processInfo.environment["CHAT_BOARD_OPEN_LOG"] {
+            let line = Data((url.absoluteString + "\n").utf8)
+            if let handle = FileHandle(forWritingAtPath: log) {
+                handle.seekToEndOfFile()
+                handle.write(line)
+                try? handle.close()
+            } else {
+                FileManager.default.createFile(atPath: log, contents: line)
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     func archive(_ chat: Chat) {

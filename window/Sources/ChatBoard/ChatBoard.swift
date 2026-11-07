@@ -112,6 +112,20 @@ struct RowFrames: PreferenceKey {
     }
 }
 
+// Where the search button and search box sit in the window, for the end-to-end tests to click.
+struct ControlFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+private func reportFrame(_ name: String) -> some View {
+    GeometryReader { geometry in
+        Color.clear.preference(key: ControlFrames.self, value: [name: geometry.frame(in: .global)])
+    }
+}
+
 struct WindowFrames: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
@@ -174,6 +188,7 @@ struct SearchField: View {
         .padding(.vertical, 5)
         .padding(.horizontal, 7)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.07)))
+        .background(reportFrame("searchField"))
         .onAppear { focused = true }
         // The panel only takes the keyboard a moment after the field appears, so ask again once it has.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in focused = true }
@@ -303,6 +318,7 @@ struct BoardView: View {
             .onPreferenceChange(RowFrames.self) { frames = $0 }
             .onPreferenceChange(WindowFrames.self) { board.rowsInWindow = $0 }
         }
+        .onPreferenceChange(ControlFrames.self) { board.controlsInWindow = $0 }
         .padding(10)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
     }
@@ -315,6 +331,7 @@ struct BoardView: View {
         }
         .buttonStyle(.plain)
         .help("Search chats (Cmd+F)")
+        .background(reportFrame("searchButton"))
     }
 
     private var counts: some View {
@@ -580,8 +597,14 @@ final class DictationToggle {
     // Clicks Claude's own Edit > Find, for searching inside the chat. False when the menu item isn't there.
     @discardableResult
     func openClaudeFind() -> Bool {
-        guard let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first
-        else { return false }
+        guard let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first,
+              let item = DictationToggle.findMenuItem(in: claude) else { return false }
+        claude.activate()
+        return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+    }
+
+    // Claude's Edit > Find menu item, matched by its shortcut. Also used by `ChatBoard --check-claude`.
+    static func findMenuItem(in claude: NSRunningApplication) -> AXUIElement? {
         func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
             var result: CFTypeRef?
             AXUIElementCopyAttributeValue(element, attribute as CFString, &result)
@@ -598,9 +621,8 @@ final class DictationToggle {
             return nil
         }
         let app = AXUIElementCreateApplication(claude.processIdentifier)
-        guard let bar = value(app, kAXMenuBarAttribute), let item = find(bar as! AXUIElement, depth: 0) else { return false }
-        claude.activate()
-        return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+        guard let bar = value(app, kAXMenuBarAttribute) else { return nil }
+        return find(bar as! AXUIElement, depth: 0)
     }
 
     init() {
@@ -643,19 +665,24 @@ final class DictationToggle {
     func clickMicrophone() -> Bool {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         guard front == AppDelegate.claude || front == Bundle.main.bundleIdentifier,
-              let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first
-        else { return false }
+              let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first,
+              let button = DictationToggle.microphoneButton(in: claude) else { return false }
+        claude.activate()
+        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+    }
+
+    // The microphone button in Claude's front window. Also used by `ChatBoard --check-claude`.
+    static func microphoneButton(in claude: NSRunningApplication) -> AXUIElement? {
         let app = AXUIElementCreateApplication(claude.processIdentifier)
         // Claude is an Electron app: its page only shows up to accessibility once asked.
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         var window: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success,
-              let window, let button = microphone(in: window as! AXUIElement, depth: 0) else { return false }
-        claude.activate()
-        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+              let window else { return nil }
+        return microphone(in: window as! AXUIElement, depth: 0)
     }
 
-    private func microphone(in element: AXUIElement, depth: Int) -> AXUIElement? {
+    private static func microphone(in element: AXUIElement, depth: Int) -> AXUIElement? {
         guard depth < 60 else { return nil }
         func text(_ attribute: String) -> String {
             var value: CFTypeRef?
@@ -735,6 +762,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.dock.writeStatus()
             }
         }
+        // CHAT_BOARD_STATE=<file>: the end-to-end tests read what the board is showing from here (see e2e/).
+        if let statePath = ProcessInfo.processInfo.environment["CHAT_BOARD_STATE"] {
+            Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.writeState(to: statePath) }
+            }
+        }
         followClaude(NSWorkspace.shared.frontmostApplication)
         // Launching can briefly put another app in front; look again once that settles.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -773,7 +806,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Shown only while Claude is the app in front, so it never sits over other apps.
     // The panel never takes focus itself, so clicking it keeps Claude in front.
-    nonisolated static let claude = "com.anthropic.claudefordesktop"
+    // The app the board docks beside. Tests point it at a stand-in app with CHAT_BOARD_TARGET (see e2e/).
+    nonisolated static let claude = ProcessInfo.processInfo.environment["CHAT_BOARD_TARGET"] ?? "com.anthropic.claudefordesktop"
     private var isHiddenByPerson = false
 
     func followClaude(_ app: NSRunningApplication?) {
@@ -783,6 +817,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if app?.bundleIdentifier != Bundle.main.bundleIdentifier {
             board?.endSearch()
             panel.orderOut(nil)
+        }
+    }
+
+    // Rows and controls in screen coordinates (top-left origin, the same space posted mouse events use).
+    private func writeState(to path: String) {
+        let top = (NSScreen.screens.first?.frame.height ?? 0) - panel.frame.maxY
+        func screen(_ rect: CGRect) -> [Double] {
+            [panel.frame.minX + rect.minX, top + rect.minY, rect.width, rect.height].map { Double($0) }
+        }
+        let shown = board.shown
+        let state: [String: Any] = [
+            "at": Date().timeIntervalSince1970 * 1000,
+            "visible": panel.isVisible,
+            "panel": [panel.frame.minX, top, panel.frame.width, panel.frame.height].map { Double($0) },
+            "isSearching": board.isSearching,
+            "query": board.query,
+            "selected": board.selected,
+            "notice": board.notice.text ?? "",
+            "panelIsKey": panel.isKeyWindow,
+            "rows": shown.map { chat -> [String: Any] in
+                ["id": chat.id, "localId": chat.localId, "title": chat.title, "depth": chat.depth,
+                 "frame": board.rowsInWindow[chat.id].map(screen) ?? []]
+            },
+            "controls": board.controlsInWindow.mapValues(screen),
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: state) {
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
         }
     }
 
@@ -841,6 +902,29 @@ func listClaudeButtons() {
     print("windows:", (windows as? [AXUIElement])?.count ?? 0, "| elements walked:", seen, "| roles:", roles.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key)=\($0.value)" }.joined(separator: " "))
 }
 
+// Exit 0 when both are found, 1 when either is missing, 2 when it can't look (no permission, Claude not running).
+@MainActor
+func checkClaude() -> Int32 {
+    guard AXIsProcessTrusted() else {
+        print("Can't look: this program needs Accessibility (System Settings > Privacy & Security > Accessibility).")
+        return 2
+    }
+    guard let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first else {
+        print("Can't look: \(AppDelegate.claude) isn't running.")
+        return 2
+    }
+    // The page only appears to accessibility a moment after it's asked for, the first time.
+    var mic = DictationToggle.microphoneButton(in: claude)
+    for _ in 0..<10 where mic == nil {
+        Thread.sleep(forTimeInterval: 0.3)
+        mic = DictationToggle.microphoneButton(in: claude)
+    }
+    let find = DictationToggle.findMenuItem(in: claude)
+    print("microphone button (Cmd+D): \(mic != nil ? "found" : "MISSING (the chat in front has to show its message box: not mid-reply, and no question or permission card open)")")
+    print("Edit > Find menu item (second Cmd+F): \(find != nil ? "found" : "MISSING")")
+    return mic != nil && find != nil ? 0 : 1
+}
+
 @MainActor
 private func snapshot(to path: String, width: Double, height: Double, search: String?) {
     let board = BoardModel()
@@ -860,6 +944,11 @@ private func snapshot(to path: String, width: Double, height: Double, search: St
 struct ChatBoardApp {
     static func main() {
         let app = NSApplication.shared
+        // `ChatBoard --check-claude` checks, without pressing anything, that the real Claude app still has the
+        // microphone button and the Find menu item the shortcuts press. Run it after a Claude update.
+        if CommandLine.arguments.contains("--check-claude") {
+            exit(MainActor.assumeIsolated { checkClaude() })
+        }
         // `ChatBoard --find-buttons` lists Claude's buttons, to find the ones Chat Board presses.
         if CommandLine.arguments.contains("--find-buttons") {
             listClaudeButtons()

@@ -98,7 +98,26 @@ window/scripts/test.sh               # the app: status rules, ordering, unread, 
 window/scripts/snapshot-check.sh     # renders the board from demo data and checks all four colors are drawn
 ```
 
-`test.sh` runs `swift test`, adding the flags Swift Testing needs when only the Command Line Tools are installed. Four things can't be unit tested and are checked by hand: the live Accessibility docking (does Claude actually move and resize), the first-click and keyboard focus behavior, the Cmd+D button press, and Cmd+F taking the keyboard and handing it back. For troubleshooting, the app writes what it sees about the screen and its permissions to `~/.claude/chat-hud/dock-status.json`.
+`test.sh` runs `swift test`, adding the flags Swift Testing needs when only the Command Line Tools are installed. For troubleshooting, the app writes what it sees about the screen and its permissions to `~/.claude/chat-hud/dock-status.json`.
+
+### End-to-end tests
+
+The parts unit tests can't reach (docking and resizing, where the keyboard goes after a click, Cmd+F, Cmd+D, dragging, the right-click Archive, the menu bar toggle) have end-to-end tests that press real keys and click the real mouse:
+
+```bash
+window/scripts/e2e.sh                              # all 23 tests
+E2E_ONLY=search,focus window/scripts/e2e.sh        # some groups: docking focus search dictation order archive config
+```
+
+They run the board on the demo chats beside **Stand-in Claude** (`window/Sources/StandIn`), a small app with a message box, a microphone button and an Edit > Find menu that logs every key and press it receives. The board is pointed at it with `CHAT_BOARD_TARGET`, so the tests never touch real chats, and they don't need the Claude app installed. The runner (`window/Sources/E2E`) reads where keystrokes landed from the stand-in's log and what the board shows from a state file the board writes only when `CHAT_BOARD_STATE` is set.
+
+The run takes over the keyboard and mouse for about two minutes, so it belongs on a Mac nobody is using. Set `E2E_HOST` (and optionally `E2E_SSH_KEY`, `E2E_REMOTE_DIR`) in `~/.claude/chat-hud/e2e.env` to run it on another Mac over ssh; without it, it runs on this one after a countdown. That Mac needs to be logged in with its screen unlocked, and the first run there needs Accessibility switched on for **Chat Board E2E** and **Chat Board Test**. Sign with a fixed certificate (`SIGN_IDENTITY`, as for `build.sh`) so those grants survive rebuilds. Before every key or click the runner checks that the stand-in or the board is in front, and stops the run if anything else is.
+
+Two things stay manual: real hardware focus quirks of the actual Claude app, and full-screen mode (the board stays out of a full-screen Claude). To check that the real Claude app still has the two controls the shortcuts press, with Claude idle and a chat's message box showing:
+
+```bash
+~/Applications/Chat\ Board.app/Contents/MacOS/ChatBoard --check-claude   # read-only; presses nothing
+```
 
 To render the board without any real chats, use demo data:
 
