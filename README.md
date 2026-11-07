@@ -51,9 +51,11 @@ cd chat-board/window
 open ~/Applications/Chat\ Board.app
 ```
 
-The first launch asks for Accessibility permission (System Settings, Privacy & Security, Accessibility). It needs it for two things: placing itself beside Claude and resizing the two windows together, and the Cmd+D shortcut below. macOS may also ask for Input Monitoring for the shortcut.
+The first launch asks for Accessibility permission (System Settings, Privacy & Security, Accessibility). It needs it for two things: placing itself beside Claude and resizing the two windows together, and the Cmd+D and Cmd+F shortcuts below. macOS may also ask for Input Monitoring for the shortcut.
 
 **Cmd+D for dictation.** Claude's own Cmd+D dictation is hold-to-talk. While Claude or the board is in front, Chat Board catches Cmd+D and clicks Claude's microphone button instead, so one press starts dictation and the next stops it. Every other key passes through untouched, and Cmd+D passes through too if the button can't be found (for example while Claude shows Stop mid-reply). If an app update moves the button, `ChatBoard --find-buttons` lists the buttons in Claude's window.
+
+**Cmd+F to search the board.** While Claude or the board is in front, Cmd+F opens a search box at the top of the board instead of Claude's find. Type to filter chats by title and status line (every word has to match, and a word can be the start of a longer one). Up and down pick a chat, Return opens it, and Escape closes the search and hands the keyboard back to Claude. To search inside the chat you're in, press Cmd+F a second time: the board's search closes and Claude's own Find opens. The magnifier next to "Chats" opens the search with the mouse. If the board is hidden, Cmd+F goes to Claude as usual.
 
 macOS ties that permission to the app's signature. An ad-hoc signature changes on every build, so you'd have to grant it again after each rebuild. To avoid that, sign with a certificate of your own: put `SIGN_IDENTITY="<your certificate name>"` (and optionally `BUNDLE_ID=...`) in `~/.claude/chat-hud/build.env`, which `build.sh` reads. The certificate has to be trusted for code signing.
 
@@ -96,7 +98,7 @@ window/scripts/test.sh               # the app: status rules, ordering, unread, 
 window/scripts/snapshot-check.sh     # renders the board from demo data and checks all four colors are drawn
 ```
 
-`test.sh` runs `swift test`, adding the flags Swift Testing needs when only the Command Line Tools are installed. Three things can't be unit tested and are checked by hand: the live Accessibility docking (does Claude actually move and resize), the first-click and keyboard focus behavior, and the Cmd+D button press. For troubleshooting, the app writes what it sees about the screen and its permissions to `~/.claude/chat-hud/dock-status.json`.
+`test.sh` runs `swift test`, adding the flags Swift Testing needs when only the Command Line Tools are installed. Four things can't be unit tested and are checked by hand: the live Accessibility docking (does Claude actually move and resize), the first-click and keyboard focus behavior, the Cmd+D button press, and Cmd+F taking the keyboard and handing it back. For troubleshooting, the app writes what it sees about the screen and its permissions to `~/.claude/chat-hud/dock-status.json`.
 
 To render the board without any real chats, use demo data:
 

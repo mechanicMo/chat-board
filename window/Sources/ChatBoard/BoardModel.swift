@@ -139,9 +139,52 @@ final class BoardModel: ObservableObject {
     // Where each chat's row sits in the window, so a click caught by the panel can find its chat.
     var rowsInWindow: [String: CGRect] = [:]
 
-    func click(at point: CGPoint) {
+    // True when the click landed on a chat and opened it.
+    @discardableResult
+    func click(at point: CGPoint) -> Bool {
         guard let id = rowsInWindow.first(where: { $0.value.contains(point) })?.key,
-              let chat = chats.first(where: { $0.id == id }) else { return }
+              let chat = shown.first(where: { $0.id == id }) else { return false }
+        endSearch()
+        open(chat)
+        return true
+    }
+
+    // MARK: Search (Cmd+F, or the magnifier in the header)
+
+    @Published private(set) var isSearching = false
+    @Published var query = "" { didSet { selected = 0 } }
+    @Published var selected = 0
+    // Set by the app: gives the board the keyboard while searching, and hands it back to Claude after.
+    var onSearchChange: (Bool) -> Void = { _ in }
+
+    // What the list draws: the whole board, or just the chats that match while searching.
+    var shown: [Chat] { isSearching ? Search.filter(chats, query: query) : chats }
+
+    func startSearch() {
+        guard !isSearching else { return }
+        query = ""
+        isSearching = true
+        onSearchChange(true)
+    }
+
+    func endSearch() {
+        guard isSearching else { return }
+        isSearching = false
+        query = ""
+        onSearchChange(false)
+    }
+
+    func moveSelection(by step: Int) {
+        let count = shown.count
+        guard count > 0 else { return }
+        selected = min(max(selected + step, 0), count - 1)
+    }
+
+    func openSelected() {
+        let list = shown
+        guard list.indices.contains(selected) else { return }
+        let chat = list[selected]
+        endSearch()
         open(chat)
     }
 

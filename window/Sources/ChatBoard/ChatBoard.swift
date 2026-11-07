@@ -17,6 +17,7 @@ struct ChatRow: View {
     let chat: Chat
     let isCurrent: Bool
     let isUnread: Bool
+    var isSelected = false
     @State private var isHovered = false
 
     var body: some View {
@@ -54,7 +55,11 @@ struct ChatRow: View {
         .padding(.horizontal, 7)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isCurrent ? chat.kind.color : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+                .fill(isCurrent ? chat.kind.color : (isHovered || isSelected ? Color.primary.opacity(0.08) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(Color.accentColor, lineWidth: isSelected ? 2 : 0)
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
@@ -142,6 +147,39 @@ struct NoticeBar: View {
     }
 }
 
+// The search box. Typing filters the list, up and down pick a chat, Return opens it, Escape closes the search.
+struct SearchField: View {
+    @ObservedObject var board: BoardModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search chats", text: $board.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .focused($focused)
+                .onSubmit { board.openSelected() }
+                .onKeyPress(.downArrow) { board.moveSelection(by: 1); return .handled }
+                .onKeyPress(.upArrow) { board.moveSelection(by: -1); return .handled }
+                .onKeyPress(.escape) { board.endSearch(); return .handled }
+            Button {
+                board.endSearch()
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Close search (Esc)")
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 7)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.07)))
+        .onAppear { focused = true }
+        // The panel only takes the keyboard a moment after the field appears, so ask again once it has.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in focused = true }
+    }
+}
+
 struct BoardView: View {
     @ObservedObject var board: BoardModel
     @State private var frames: [String: CGRect] = [:]
@@ -194,14 +232,19 @@ struct BoardView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Chats").font(.system(size: 20, weight: .bold))
+                    searchButton
                     Spacer(minLength: 8)
                     counts
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Chats").font(.system(size: 20, weight: .bold))
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Chats").font(.system(size: 20, weight: .bold))
+                        searchButton
+                    }
                     counts
                 }
             }
+            if board.isSearching { SearchField(board: board) }
             Flow(spacing: 12) {
                 ForEach(Kind.allCases, id: \.self) { kind in
                     HStack(spacing: 3) {
@@ -213,12 +256,18 @@ struct BoardView: View {
             NoticeBar(notice: board.notice)
             // A plain stack rather than a List: a List drops the first click in a window that isn't focused,
             // and the panel is never focused (Claude stays in front). Click and drag are handled here instead.
+            ScrollViewReader { scroller in
             ScrollView {
                 VStack(spacing: 2) {
-                    ForEach(board.chats) { chat in
+                    let shown = board.shown
+                    if board.isSearching && shown.isEmpty {
+                        Text("No chats match.").font(.system(size: 14)).foregroundStyle(.secondary).padding(8)
+                    }
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, chat in
                         let group = groupOf[chat.id] ?? chat.id
                         let isMoving = dragging == group
-                        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat))
+                        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
+                                isSelected: board.isSearching && index == board.selected)
                             .padding(.leading, chat.depth > 0 ? 18 : 0)
                             .background(GeometryReader { geometry in
                                 Color.clear
@@ -229,7 +278,9 @@ struct BoardView: View {
                             .opacity(isMoving ? 0.8 : 1)
                             .zIndex(isMoving ? 1 : 0)
                             .contentShape(Rectangle())
-                            .gesture(drag(group))
+                            // No reordering while searching: the drop targets would be the filtered rows.
+                            .gesture(drag(group), including: board.isSearching ? .none : .all)
+                            .id(chat.id)
                             .contextMenu {
                                 Button("Open") { board.open(chat) }
                                 Button("Archive") { board.archive(chat) }
@@ -244,11 +295,26 @@ struct BoardView: View {
                 }
             }
             .coordinateSpace(name: "list")
+            .onChange(of: board.selected) { _, index in
+                let shown = board.shown
+                if shown.indices.contains(index) { scroller.scrollTo(shown[index].id) }
+            }
+            }
             .onPreferenceChange(RowFrames.self) { frames = $0 }
             .onPreferenceChange(WindowFrames.self) { board.rowsInWindow = $0 }
         }
         .padding(10)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
+    }
+
+    private var searchButton: some View {
+        Button {
+            board.startSearch()
+        } label: {
+            Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Search chats (Cmd+F)")
     }
 
     private var counts: some View {
@@ -266,27 +332,56 @@ final class FirstClickHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
-// The board never keeps the keyboard: clicks and drags work without it, and typing stays in Claude.
+// Gives the keyboard back to Claude. Activating Claude alone isn't enough: once the board has held the keyboard,
+// Claude can still be the front app while its window no longer has focus, and activating an app that is already in
+// front does nothing. So the board lets go of the keyboard first, then Claude's window is raised through Accessibility.
+@MainActor
+func returnFocusToClaude(from panel: NSPanel?) {
+    if let panel = panel as? ClickThroughPanel { panel.allowsKey = false }
+    if let panel, panel.isKeyWindow { panel.resignKey() }
+    if NSApp.isActive { NSApp.deactivate() }
+    guard let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first else { return }
+    claude.activate()
+    guard AXIsProcessTrusted() else { return }
+    let app = AXUIElementCreateApplication(claude.processIdentifier)
+    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    var window: CFTypeRef?
+    for attribute in [kAXMainWindowAttribute, kAXFocusedWindowAttribute] {
+        if AXUIElementCopyAttributeValue(app, attribute as CFString, &window) == .success, let window {
+            AXUIElementPerformAction(window as! AXUIElement, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(window as! AXUIElement, kAXMainAttribute as CFString, kCFBooleanTrue)
+            return
+        }
+    }
+}
+
+// The board only takes the keyboard while you search: clicks and drags work without it, and typing stays in Claude.
 final class ClickThroughPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    var allowsKey = false
+    override var canBecomeKey: Bool { allowsKey }
 
     // A window that isn't focused loses SwiftUI's first click, but every click still passes through here.
     // A press and release within a few points is a click; anything longer is a drag, left to the list.
-    var onClick: ((CGPoint) -> Void)?
+    // onClick says whether the click opened a chat.
+    var onClick: ((CGPoint) -> Bool)?
+    // True while the search box is open, so a click in it keeps the keyboard here.
+    var keepsKeyboard: () -> Bool = { false }
     private var pressedAt: CGPoint?
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown { pressedAt = event.locationInWindow }
         if event.type == .leftMouseUp, let start = pressedAt {
             let end = event.locationInWindow
+            var openedChat = false
             if hypot(end.x - start.x, end.y - start.y) < 4 {
                 // AppKit counts from the window's bottom; SwiftUI's window space counts from the top.
-                onClick?(CGPoint(x: end.x, y: frame.height - end.y))
+                openedChat = onClick?(CGPoint(x: end.x, y: frame.height - end.y)) ?? false
             }
             pressedAt = nil
             super.sendEvent(event)
+            if !openedChat && keepsKeyboard() { return }
             // Whatever the click or drag did, the keyboard belongs to Claude afterwards.
-            NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first?.activate()
+            returnFocusToClaude(from: self)
             return
         }
         super.sendEvent(event)
@@ -418,6 +513,11 @@ final class ClaudeDock: NSObject, NSWindowDelegate {
             "claudeFrame": window.flatMap { frame(of: $0) }.map { "\(Int($0.minX)),\(Int($0.width))" } ?? "",
             "boardFrame": "\(Int(panel.frame.minX)),\(Int(panel.frame.width))",
             "watching": watchedWindow != nil,
+            // Who has the keyboard, for when focus doesn't come back to Claude after a click on the board.
+            "frontApp": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
+            "boardAppActive": NSApp.isActive,
+            "boardIsKey": panel.isKeyWindow,
+            "boardAllowsKey": (panel as? ClickThroughPanel)?.allowsKey ?? false,
         ]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             FileManager.default.createFile(atPath: shareDir + "/dock-status.json", contents: data)
@@ -467,6 +567,41 @@ final class ClaudeDock: NSObject, NSWindowDelegate {
 final class DictationToggle {
     private var tap: CFMachPort?
     private static let dKey: Int64 = 0x02
+    private static let fKey: Int64 = 0x03
+    // Cmd+F: set by the app. Taken only while Claude or the board is in front and the board is showing.
+    var isBoardShowing: () -> Bool = { false }
+    var onFind: () -> Void = {}
+
+    func wantsFind() -> Bool {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        return (front == AppDelegate.claude || front == Bundle.main.bundleIdentifier) && isBoardShowing()
+    }
+
+    // Clicks Claude's own Edit > Find, for searching inside the chat. False when the menu item isn't there.
+    @discardableResult
+    func openClaudeFind() -> Bool {
+        guard let claude = NSRunningApplication.runningApplications(withBundleIdentifier: AppDelegate.claude).first
+        else { return false }
+        func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+            var result: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, attribute as CFString, &result)
+            return result
+        }
+        func find(_ element: AXUIElement, depth: Int) -> AXUIElement? {
+            guard depth < 6 else { return nil }
+            // Cmd+F with no other modifier (0) is Find; Cmd+Shift+F is Show Files.
+            if (value(element, "AXMenuItemCmdChar") as? String)?.uppercased() == "F",
+               (value(element, "AXMenuItemCmdModifiers") as? Int) == 0 { return element }
+            for child in (value(element, kAXChildrenAttribute) as? [AXUIElement]) ?? [] {
+                if let found = find(child, depth: depth + 1) { return found }
+            }
+            return nil
+        }
+        let app = AXUIElementCreateApplication(claude.processIdentifier)
+        guard let bar = value(app, kAXMenuBarAttribute), let item = find(bar as! AXUIElement, depth: 0) else { return false }
+        claude.activate()
+        return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+    }
 
     init() {
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
@@ -478,9 +613,16 @@ final class DictationToggle {
                 return Unmanaged.passUnretained(event)
             }
             let flags = event.flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl])
+            let key = event.getIntegerValueField(.keyboardEventKeycode)
             guard type == .keyDown, flags == .maskCommand,
-                  event.getIntegerValueField(.keyboardEventKeycode) == DictationToggle.dKey,
                   event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else { return Unmanaged.passUnretained(event) }
+            if key == DictationToggle.fKey {
+                // Answered at once and handled after, so the tap never waits on the window.
+                guard MainActor.assumeIsolated({ toggle.wantsFind() }) else { return Unmanaged.passUnretained(event) }
+                DispatchQueue.main.async { MainActor.assumeIsolated { toggle.onFind() } }
+                return nil
+            }
+            guard key == DictationToggle.dKey else { return Unmanaged.passUnretained(event) }
             let handled = MainActor.assumeIsolated { toggle.clickMicrophone() }
             return handled ? nil : Unmanaged.passUnretained(event)
         }
@@ -543,6 +685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var dock: ClaudeDock!
     private var dictation: DictationToggle!
+    private var board: BoardModel!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let board = BoardModel()
@@ -560,7 +703,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = FirstClickHostingView(rootView: AnyView(BoardView(board: board).background(.regularMaterial)))
-        (panel as? ClickThroughPanel)?.onClick = { [weak board] point in board?.click(at: point) }
+        let clickPanel = panel as! ClickThroughPanel
+        clickPanel.onClick = { [weak board] point in board?.click(at: point) ?? false }
+        clickPanel.keepsKeyboard = { [weak board] in board?.isSearching ?? false }
+        // Searching gives the board the keyboard; closing the search gives it back to Claude.
+        board.onSearchChange = { [weak clickPanel] searching in
+            guard let clickPanel else { return }
+            if searching {
+                clickPanel.allowsKey = true
+                clickPanel.makeKeyAndOrderFront(nil)
+            } else {
+                returnFocusToClaude(from: clickPanel)
+            }
+        }
+        // Clicking back into Claude closes the search, so a leftover filter never sits there while you work.
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak board] _ in
+            MainActor.assumeIsolated { board?.endSearch() }
+        }
+        self.board = board
         board.isPointerHeld = { [weak panel] in
             guard let panel, panel.isVisible else { return false }
             return NSEvent.pressedMouseButtons & 1 != 0 && panel.frame.contains(NSEvent.mouseLocation)
@@ -588,6 +748,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         dictation = DictationToggle()
+        dictation.isBoardShowing = { [weak self] in self?.panel.isVisible ?? false }
+        // Cmd+F searches the board. Pressed again while the search is open, it opens Claude's own Find instead.
+        dictation.onFind = { [weak self] in
+            guard let self else { return }
+            if self.board.isSearching {
+                self.board.endSearch()
+                self.dictation.openClaudeFind()
+            } else {
+                self.board.startSearch()
+            }
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "list.bullet.rectangle", accessibilityDescription: "Chat Board")
@@ -610,6 +781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderFrontRegardless()
             dock.dock()
         } else if app?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            board?.endSearch()
             panel.orderOut(nil)
         }
     }
@@ -670,8 +842,9 @@ func listClaudeButtons() {
 }
 
 @MainActor
-private func snapshot(to path: String, width: Double, height: Double) {
+private func snapshot(to path: String, width: Double, height: Double, search: String?) {
     let board = BoardModel()
+    if let search { board.startSearch(); board.query = search }
     let view = NSHostingView(rootView: BoardView(board: board).background(Color(nsColor: .windowBackgroundColor)))
     view.frame = NSRect(x: 0, y: 0, width: width, height: height)
     let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -697,7 +870,8 @@ struct ChatBoardApp {
         if let flag = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(flag + 1) {
             let width = arguments.firstIndex(of: "--width").flatMap { arguments.indices.contains($0 + 1) ? Double(arguments[$0 + 1]) : nil } ?? 400
             let height = arguments.firstIndex(of: "--height").flatMap { arguments.indices.contains($0 + 1) ? Double(arguments[$0 + 1]) : nil } ?? 760
-            MainActor.assumeIsolated { snapshot(to: arguments[flag + 1], width: width, height: height) }
+            let search = arguments.firstIndex(of: "--search").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+            MainActor.assumeIsolated { snapshot(to: arguments[flag + 1], width: width, height: height, search: search) }
             return
         }
         let delegate = AppDelegate()
