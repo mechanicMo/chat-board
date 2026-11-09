@@ -350,6 +350,47 @@ test('a tool call is marked pending while it runs and cleared when it returns, s
   expect(pending).toEqual(['Read', null])
 })
 
+// Runs a Bash call whose permission check answers "ask", and reports whether the board row was marked asked
+// while it ran. `during` runs inside the call, after the check (a dialog's notification, say).
+const askedDuringBash = async ($: any, on: any, mode: string, during?: () => Promise<unknown>) => {
+  mock.clock(on, { now: 1000 })
+  const { files } = engine(on, answered)
+  let asked: boolean | null = null
+  // Only the check the stand-in runs asks; the harness's own check before the call lets it through.
+  on('tool.check', (_: unknown, e: any) => ({ decision: e.tool_use_id === 't1' ? 'ask' : 'allow' }))
+  on('classic.UserPromptSubmit', () => ({ value: {} }))
+  on('classic.Notification', () => ({ value: {} }))
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 't1', approver: 'person' })
+    if (during) await during()
+    asked = JSON.parse(files.get('/Users/alex/.claude/chat-hud/rows/session-a.json')!.text).pending?.asked ?? null
+    return { result: 'ok' }
+  })
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.classic.UserPromptSubmit({ prompt: 'go', permission_mode: mode } as any)
+  await $.turn.start(message as any)
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  return asked
+}
+
+test('an ask in default mode goes to the person, so the row is marked asked', async ($, on) => {
+  expect(await askedDuringBash($, on, 'default')).toBe(true)
+})
+
+test('an ask in auto mode is settled by the classifier, so a running command stays working', async ($, on) => {
+  expect(await askedDuringBash($, on, 'auto')).toBe(false)
+})
+
+test('a permission dialog that actually shows marks the row asked, even in auto mode', async ($, on) => {
+  const notify = () => $.classic.Notification({ message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt', permission_mode: 'auto' } as any)
+  expect(await askedDuringBash($, on, 'auto', notify)).toBe(true)
+})
+
+test('an idle notification is not a permission dialog', async ($, on) => {
+  const notify = () => $.classic.Notification({ message: 'Claude is waiting for your input', notification_type: 'idle_prompt', permission_mode: 'auto' } as any)
+  expect(await askedDuringBash($, on, 'auto', notify)).toBe(false)
+})
+
 test('a subagent\'s tool calls never mark the chat pending', async ($, on) => {
   mock.clock(on, { now: 1000 })
   const { writes } = engine(on, answered)

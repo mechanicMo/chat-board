@@ -31,6 +31,12 @@ let recordPath: string | null = null
 let isRecordSearched = false
 let privateFolders: string[] | null = null
 let usageQueue: Promise<void> = Promise.resolve()
+// The chat's permission mode as the classic hooks last reported it; null until one has.
+let permissionMode: string | null = null
+
+// Modes where an "ask" goes to a person. In auto mode the classifier settles it; dontAsk and bypass never ask.
+export const asksPerson = (mode: string | null): boolean =>
+  mode !== 'auto' && mode !== 'dontAsk' && mode !== 'bypassPermissions'
 
 // The folder every chat and the Chat Board window share. Files, because the store is read once per process
 // and can't carry changes between chats that are already open.
@@ -233,6 +239,12 @@ const handleRequests = async ($: EngineInterface) => {
   }
 }
 
+// Mark the running main-loop call (the named tool's, when given) as waiting for the person's OK.
+const markAsked = ($: EngineInterface, tool?: string) =>
+  saveRow($, current =>
+    current.pending && (!tool || current.pending.tool === tool) ? { ...current, pending: { ...current.pending, asked: true } } : current,
+  ).catch(() => {})
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const ran = await next(e)
@@ -316,12 +328,30 @@ export const register: Register = on => {
   })
 
   // When the permission check hands a main-loop call to a person, mark it so the board shows it at once.
+  // An "ask" here is settled afterwards by the mode: in auto mode the classifier answers it, almost always
+  // without the person, so it marks nothing (the dialog's own notification below does, if one shows).
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.approver === 'person' && !e.agentId && e.tool_use_id) {
-      await saveRow($, current => (current.pending?.tool === e.tool ? { ...current, pending: { ...current.pending, asked: true } } : current)).catch(() => {})
+    if (verdict.decision === 'ask' && e.approver === 'person' && !e.agentId && e.tool_use_id && asksPerson(permissionMode)) {
+      await markAsked($, e.tool)
     }
     return verdict
+  })
+
+  // The permission mode, read from the classic hooks that carry it, so tool.check can tell who settles an ask.
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.permission_mode) permissionMode = e.permission_mode
+    return next(e)
+  })
+  on('classic.UserPromptSubmit', async ($, e, next) => {
+    if (e.permission_mode) permissionMode = e.permission_mode
+    return next(e)
+  })
+  // A permission dialog actually put in front of the person: the one sure sign, whatever the mode.
+  on('classic.Notification', async ($, e, next) => {
+    if (e.permission_mode) permissionMode = e.permission_mode
+    if (e.notification_type === 'permission_prompt' && !e.agent_id) await markAsked($)
+    return next(e)
   })
 
   // The chat's instruction to report its own status. Private and switched-off chats never get it.
