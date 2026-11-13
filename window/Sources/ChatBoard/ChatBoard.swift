@@ -441,9 +441,10 @@ struct BoardView: View {
             }
             .onPreferenceChange(NodeFrames.self) { nodeFrames = $0 }
             .onPreferenceChange(WindowFrames.self) { board.rowsInWindow = $0 }
-            .onPreferenceChange(HitFrames.self) { board.hitsInWindow = $0 }
         }
         .onPreferenceChange(ControlFrames.self) { board.controlsInWindow = $0 }
+        // Read here, above both the pinned header and the list, so the banner and breadcrumb report too.
+        .onPreferenceChange(HitFrames.self) { board.hitsInWindow = $0 }
         .padding(10)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
         // The whole board is framed while a project is open, so it never passes for the full list.
