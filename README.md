@@ -11,7 +11,30 @@ Chat Board fixes that. It's a window that sits to the left of the Claude app and
 
 ![Chat Board with made-up chats](docs/board.png)
 
-Chats you haven't looked at since they finished are bright, and ones you've read are dimmed. Side sessions sit indented under the chat that started them. Click a chat to open it, drag to reorder, and right-click to archive. The window and Claude always fill the screen together: drag one wider and the other shrinks to match. It only shows while Claude is in front.
+Chats you haven't looked at since they finished are bright, and ones you've read are dimmed. Side sessions sit indented under the chat that started them. Click a chat to open it, and right-click to archive. The window and Claude always fill the screen together: drag one wider and the other shrinks to match. It only shows while Claude is in front.
+
+## Sections and projects
+
+The board sorts chats by their titles. I name every chat `[tag] project - task`, like `[client] bakery site - fix the menu page`, and the board reads that:
+
+- The tag becomes a section. Click a section's header to fold it away.
+- When two or more chats share a project, they become a card. The card has a bar split by status, and it shows the one task that needs you most.
+- Click a card to open the project. The board shows only that project's chats, under Needs you, Ready to close and Working. A blue banner says how many chats are showing, and a blue frame goes around the board so you never mistake it for the full list. The banner, or the path under it, takes you back.
+- A chat without a tag sits on its own, outside the sections.
+
+![A project opened on the board](docs/project.png)
+
+New chats file themselves. When a chat is renamed into a project that already has a card, it joins the card. A new task in the same project keeps the chat in its spot.
+
+You can move anything by dragging it:
+
+- Drop a chat on the middle of a card to add it to that project.
+- Drop a chat on the middle of another chat to make a new group of the two.
+- Drop it on the edge of anything to put it in between. A blue line shows where it will land.
+- Drag sections and cards the same way.
+- On a project page, hold a dragged chat on the banner for half a second. The board goes back to all chats, and you can drop it anywhere.
+
+Right-click has the same moves: Move to, New group with, Rename group and Ungroup. Anything you move by hand stays where you put it, and the board never files it again.
 
 ## How it works
 
@@ -19,7 +42,7 @@ There are two pieces, because neither can do the whole job alone.
 
 **The mod (`hooks/`)** is a Claude Code mod that runs inside every chat. A mod can see one chat, but it can't put all of them in one list beside the app. At the end of each turn it asks the chat to report whether its purpose is done (a small `chat_status` tool call), records any question the chat asked, and notes when a tool call is held open by a card waiting for you. It writes that status to `~/.claude/chat-hud/rows/<session>.json`. It never calls a model on its own. The only cost is the small status instruction and tool each chat carries, covered under Costs.
 
-**The app (`window/`)** is a small native Mac app in Swift. It reads those status files plus the Claude app's own chat list, and draws the board. It uses the macOS Accessibility API to dock itself beside Claude and keep the two windows filling the screen.
+**The app (`window/`)** is a small native Mac app in Swift. It reads those status files plus the Claude app's own chat list, and draws the board. It saves where everything sits in `~/.claude/chat-hud/layout.json`, so your order survives a restart. It uses the macOS Accessibility API to dock itself beside Claude and keep the two windows filling the screen.
 
 The status rules live in both pieces and must agree, so both test suites read the same cases from `fixtures/describe-cases.ts`.
 
@@ -95,18 +118,18 @@ Inside any chat: `/hud` shows the status band, `/hud now` summarizes, and `/hud 
 ```bash
 claude plugin test .                 # the mod: status rules, waiting cards, privacy, archive guard
 window/scripts/test.sh               # the app: status rules, ordering, unread, filters, docking math
-window/scripts/snapshot-check.sh     # renders the board from demo data and checks all four colors are drawn
+window/scripts/snapshot-check.sh     # renders the board and a project page from demo data and checks all four colors are drawn
 ```
 
 `test.sh` runs `swift test`, adding the flags Swift Testing needs when only the Command Line Tools are installed. For troubleshooting, the app writes what it sees about the screen and its permissions to `~/.claude/chat-hud/dock-status.json`.
 
 ### End-to-end tests
 
-The parts unit tests can't reach (docking and resizing, where the keyboard goes after a click, Cmd+F, Cmd+D, dragging, the right-click Archive, the menu bar toggle) have end-to-end tests that press real keys and click the real mouse:
+The parts unit tests can't reach (docking and resizing, where the keyboard goes after a click, Cmd+F, Cmd+D, opening cards and folding sections, dragging between sections and cards, the right-click menus, the menu bar toggle) have end-to-end tests that press real keys and click the real mouse:
 
 ```bash
-window/scripts/e2e.sh                              # all 23 tests
-E2E_ONLY=search,focus window/scripts/e2e.sh        # some groups: docking focus search dictation order archive config
+window/scripts/e2e.sh                              # all 31 tests
+E2E_ONLY=search,focus window/scripts/e2e.sh        # some groups: docking focus search dictation order groups archive config
 ```
 
 They run the board on the demo chats beside **Stand-in Claude** (`window/Sources/StandIn`), a small app with a message box, a microphone button and an Edit > Find menu that logs every key and press it receives. The board is pointed at it with `CHAT_BOARD_TARGET`, so the tests never touch real chats, and they don't need the Claude app installed. The runner (`window/Sources/E2E`) reads where keystrokes landed from the stand-in's log and what the board shows from a state file the board writes only when `CHAT_BOARD_STATE` is set.
