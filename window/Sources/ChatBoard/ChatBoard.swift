@@ -305,6 +305,7 @@ struct BoardView: View {
             switch top {
             case .section(let block):
                 let inside = block.entries.map(Self.node)
+                // A faint panel marks where a section ends, so a loose chat after it never reads as part of it.
                 VStack(spacing: 2) {
                     SectionHeader(block: block).background(reportHit("section:" + block.id))
                     if !block.collapsed {
@@ -313,6 +314,10 @@ struct BoardView: View {
                         }
                     }
                 }
+                .padding(.horizontal, 3)
+                .padding(.bottom, block.collapsed ? 6 : 4)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.035)))
+                .padding(.vertical, 3)
                 .modifier(Dragged(view: self, node: .section(block.id), siblings: topNodes))
             case .entry(let entry):
                 entryView(entry, in: .top, siblings: topNodes)
