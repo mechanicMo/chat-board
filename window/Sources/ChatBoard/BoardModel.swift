@@ -40,6 +40,12 @@ extension Kind {
 @MainActor
 final class BoardModel: ObservableObject {
     @Published var chats: [Chat] = []
+    // Sections, project groups and loose chats, as the board draws them (see ChatBoardCore/Tree.swift).
+    @Published private(set) var tree: [Tree.TopEntry] = []
+    // The project page being shown, or nil for the whole board.
+    @Published private(set) var openGroupId: String?
+    private(set) var layout = BoardLayout()
+    private var layoutLoaded = false
     let notice = Notice()
 
     private var recordCache: [String: (mtime: Double, record: [String: Any])] = [:]
@@ -108,8 +114,130 @@ final class BoardModel: ObservableObject {
         let next = Board.arrange(list, order: saved)
         if let settled = Board.settledOrder(next, saved: saved) { writeOrder(settled) }
         if next != chats { chats = next }
+        refreshLayout(list)
         settleArchives()
     }
+
+    // MARK: Sections and project groups
+
+    private var layoutPath: String { shareDir + "/layout.json" }
+
+    // Files new and renamed chats, saves the layout when that changed it, and rebuilds what the board draws.
+    // Skipped while no chats are listed (an unreadable config), so groups never dissolve over a passing error.
+    private func refreshLayout(_ list: [Chat]) {
+        if !layoutLoaded {
+            layoutLoaded = true
+            if let data = FileManager.default.contents(atPath: layoutPath),
+               let saved = try? JSONDecoder().decode(BoardLayout.self, from: data) {
+                layout = saved
+            }
+        }
+        if !list.isEmpty {
+            let updated = AutoFile.update(layout, chats: list, priorOrder: readOrder())
+            if updated != layout { layout = updated; saveLayout() }
+        }
+        let built = Tree.build(layout, chats: list)
+        if built != tree { tree = built }
+        if let open = openGroupId, openCard == nil { _ = open; openGroupId = nil }
+    }
+
+    private func saveLayout() {
+        try? FileManager.default.createDirectory(atPath: shareDir, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(layout) {
+            try? data.write(to: URL(fileURLWithPath: layoutPath), options: .atomic)
+        }
+    }
+
+    private func apply(_ next: BoardLayout) {
+        guard next != layout else { return }
+        layout = next
+        saveLayout()
+        tree = Tree.build(layout, chats: chats)
+    }
+
+    // Every card on the board, wherever it sits.
+    var cards: [Tree.Card] {
+        tree.flatMap { top -> [Tree.Entry] in
+            switch top {
+            case .section(let block): block.entries
+            case .entry(let entry): [entry]
+            }
+        }.compactMap { if case .group(let card) = $0 { card } else { nil } }
+    }
+
+    var openCard: Tree.Card? { openGroupId.flatMap { id in cards.first { $0.id == id } } }
+
+    // The section an open card sits in, for the breadcrumb.
+    var openSectionName: String? {
+        guard let id = openGroupId, case .section(let section)? = layout.container(of: .group(id)) else { return nil }
+        return layout.sections[section]?.name
+    }
+
+    // True when a chat outside the open project is asking the person something.
+    var questionElsewhere: Bool {
+        guard let card = openCard else { return false }
+        let inside = Set(card.chats.map(\.id))
+        return chats.contains { $0.kind == .question && !inside.contains($0.id) }
+    }
+
+    func openProject(_ id: String) {
+        endSearch()
+        openGroupId = id
+    }
+
+    func goHome() { openGroupId = nil }
+
+    func toggleSection(_ id: String) { apply(Moves.toggleCollapsed(layout, section: id)) }
+
+    func move(_ node: Node, to container: Container, before: Node?) {
+        apply(Moves.move(layout, node, to: container, before: before))
+    }
+
+    func ungroup(_ id: String) {
+        if openGroupId == id { openGroupId = nil }
+        apply(Moves.ungroup(layout, id))
+    }
+
+    // Set by the app: asks for a new name. Nil when the person cancels.
+    var askName: (String) -> String? = { _ in nil }
+
+    func renameGroup(_ id: String) {
+        guard let current = layout.groups[id]?.name, let name = askName(current) else { return }
+        apply(Moves.rename(layout, group: id, to: name))
+    }
+
+    // Where the Move to menu can send a chat: each group and section with its name, plus the top level.
+    var moveTargets: (groups: [(id: String, name: String)], sections: [(id: String, name: String)]) {
+        let sectionOrder = layout.top.compactMap { if case .section(let id) = $0 { id } else { nil } }
+        let sections = sectionOrder.compactMap { id in layout.sections[id].map { (id: id, name: $0.name) } }
+        let groups = cards.map { (id: $0.id, name: $0.name) }
+        return (groups, sections)
+    }
+
+    // The chat rows on screen, top to bottom: search results, the open project's chats, or the loose chats of the
+    // board (cards show their chats only once opened). Collapsed sections show none.
+    var visibleChats: [Chat] {
+        if isSearching { return shown }
+        if let card = openCard { return Tree.page(card).flatMap(\.chats) }
+        return tree.flatMap { top -> [Chat] in
+            func rows(_ entry: Tree.Entry) -> [Chat] {
+                if case .chat(let chat, let children) = entry { return [chat] + children }
+                return []
+            }
+            switch top {
+            case .section(let block): return block.collapsed ? [] : block.entries.flatMap(rows)
+            case .entry(let entry): return rows(entry)
+            }
+        }
+    }
+
+    func container(of node: Node) -> Container? { layout.container(of: node) }
+
+    func items(in container: Container) -> [Node] { layout.items(in: container) }
+
+    func isUnread(_ card: Tree.Card) -> Bool { card.chats.contains { isUnread($0) } }
+
+    func holdsCurrent(_ card: Tree.Card) -> Bool { card.chats.contains { $0.id == currentId } }
 
     private func readOrder() -> [String] {
         guard let data = FileManager.default.contents(atPath: shareDir + "/order.json"),
@@ -139,15 +267,23 @@ final class BoardModel: ObservableObject {
     // Where each chat's row sits in the window, so a click caught by the panel can find its chat.
     var rowsInWindow: [String: CGRect] = [:]
     var controlsInWindow: [String: CGRect] = [:]
+    // Cards ("group:<id>"), section headers ("section:<id>") and the ways home ("home:<n>"), for the same reason.
+    var hitsInWindow: [String: CGRect] = [:]
 
     // True when the click landed on a chat and opened it.
     @discardableResult
     func click(at point: CGPoint) -> Bool {
-        guard let id = rowsInWindow.first(where: { $0.value.contains(point) })?.key,
-              let chat = shown.first(where: { $0.id == id }) else { return false }
-        endSearch()
-        open(chat)
-        return true
+        if let id = rowsInWindow.first(where: { $0.value.contains(point) })?.key,
+           let chat = chats.first(where: { $0.id == id }) {
+            endSearch()
+            open(chat)
+            return true
+        }
+        guard !isSearching, let hit = hitsInWindow.first(where: { $0.value.contains(point) })?.key else { return false }
+        if hit.hasPrefix("group:") { openProject(String(hit.dropFirst(6))) }
+        else if hit.hasPrefix("section:") { toggleSection(String(hit.dropFirst(8))) }
+        else if hit.hasPrefix("home") { goHome() }
+        return false
     }
 
     // MARK: Search (Cmd+F, or the magnifier in the header)

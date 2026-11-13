@@ -10,6 +10,7 @@ now = time.time() * 1000
 min_ = 60 * 1000
 
 # (title, kind, line, minutes since it finished, unread, parent index, focused rank)
+# Titles follow `[tag] project - task`, so the board groups them into sections and project cards.
 chats = [
     ("[client] bakery site - fix the menu page", "question",
      "Should the seasonal menu replace the regular one, or sit above it?", 2, True, None, 0),
@@ -27,6 +28,11 @@ chats = [
     ("[biz] website - new pricing page", "working", "", 0, False, None, 0),
     ("[client] dog groomer - test the reminder texts", "ready",
      "All three reminder texts sent to the test phone on time.", 58, False, 2, 0),
+    ("[side] recipe app - import from a link", "your_move",
+     "Left: you pick which two sites to support first.", 66, False, None, 0),
+    ("[side] recipe app - shopping list", "working", "", 0, False, None, 0),
+    ("[side] recipe app - meal plan export", "ready",
+     "Exports a week of meals to a printable PDF.", 72, False, None, 0),
     # The chat open beside the board, drawn as the highlighted current chat.
     ("[side] chat board - write the readme", "working", "", 0, False, None, 1),
 ]
@@ -62,5 +68,5 @@ for i, (title, kind, line, ago, unread, parent, focused) in enumerate(chats):
     json.dump(row, open(os.path.join(rows, cli + ".json"), "w"))
 
 # The order the person dragged them into.
-json.dump([f"demo-cli-{i:02d}" for i in (9, 0, 2, 3, 4, 7, 5, 6)], open(os.path.join(root, "share", "order.json"), "w"))
+json.dump([f"demo-cli-{i:02d}" for i in (12, 0, 2, 3, 4, 7, 5, 6)], open(os.path.join(root, "share", "order.json"), "w"))
 print("wrote", len(chats), "made-up chats to", root)

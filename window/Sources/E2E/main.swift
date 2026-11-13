@@ -118,10 +118,30 @@ func openedLinks() -> [String] {
     ((try? String(contentsOfFile: openLog, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
 }
 
-func savedOrder() -> [String] {
-    guard let data = FileManager.default.contents(atPath: shareDir + "/order.json") else { return [] }
-    return (try? JSONSerialization.jsonObject(with: data)) as? [String] ?? []
+// The board's saved layout (layout.json), flattened to chat ids in board order, with where each chat sits.
+// Nodes are encoded like {"chat": {"_0": "<id>"}}.
+func savedLayout() -> (order: [String], containers: [String: String]) {
+    guard let data = FileManager.default.contents(atPath: shareDir + "/layout.json"),
+          let layout = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return ([], [:]) }
+    let sections = layout["sections"] as? [String: [String: Any]] ?? [:]
+    let groups = layout["groups"] as? [String: [String: Any]] ?? [:]
+    var order: [String] = [], containers: [String: String] = [:]
+    func walk(_ nodes: [[String: Any]], in container: String) {
+        for node in nodes {
+            if let chat = (node["chat"] as? [String: Any])?["_0"] as? String {
+                order.append(chat); containers[chat] = container
+            } else if let id = (node["group"] as? [String: Any])?["_0"] as? String {
+                for chat in groups[id]?["chats"] as? [String] ?? [] { order.append(chat); containers[chat] = "group:" + id }
+            } else if let id = (node["section"] as? [String: Any])?["_0"] as? String {
+                walk(sections[id]?["items"] as? [[String: Any]] ?? [], in: "section:" + id)
+            }
+        }
+    }
+    walk(layout["top"] as? [[String: Any]] ?? [], in: "top")
+    return (order, containers)
 }
+
+func savedOrder() -> [String] { savedLayout().order }
 
 // MARK: Apps and windows
 
@@ -562,9 +582,12 @@ test("dictation", "with no microphone button, Cmd+D passes through to the stand-
 // Ordering
 
 test("order", "dragging a chat down moves it, and the order survives a restart") {
+    // Dragging reorders within one section, so pick three loose chats that share one.
+    let containers = savedLayout().containers
     let parents = board().rows.filter { $0.depth == 0 }
-    try check(parents.count >= 4, "need four top-level chats")
-    let moving = parents[0], below = parents[2]
+    let shared = Dictionary(grouping: parents) { containers[$0.id] ?? "" }.values.first { $0.count >= 3 }
+    guard let shared else { throw Failure(message: "need three loose chats in one section") }
+    let moving = shared[0], below = shared[2]
     try drag(from: center(moving.frame), to: CGPoint(x: below.frame.midX, y: below.frame.maxY + 4))
     let order = savedOrder()
     guard let moved = order.firstIndex(of: moving.id), let anchor = order.firstIndex(of: below.id) else {
