@@ -12,7 +12,7 @@
 # to "Chat Board E2E" and "Chat Board Test" (System Settings > Privacy & Security > Accessibility).
 #
 #   scripts/e2e.sh                   run everything
-#   E2E_ONLY=search,focus scripts/e2e.sh   run some groups (docking focus search dictation order archive config)
+#   E2E_ONLY=search,focus scripts/e2e.sh   run some groups (docking focus search dictation order groups archive config)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 settings="$HOME/.claude/chat-hud/e2e.env"

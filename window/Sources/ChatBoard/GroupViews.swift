@@ -221,6 +221,13 @@ struct MoveToMenu: View {
                 }
             }
             Divider()
+            if case .chat(let id) = node, !board.groupPartners(id).isEmpty {
+                Menu("New group with") {
+                    ForEach(board.groupPartners(id)) { other in
+                        Button(untaggedTitle(other)) { board.makeGroup(id, with: other.id) }
+                    }
+                }
+            }
             Button("Out of all groups and sections") { board.move(node, to: .top, before: board.items(in: .top).first) }
                 .disabled(here == .top)
         }

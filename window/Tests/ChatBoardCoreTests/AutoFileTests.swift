@@ -78,6 +78,17 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         #expect(!layout.top.contains(.chat("a")))
     }
 
+    @Test func aNewTaskInTheSameProjectKeepsTheChatsSpot() throws {
+        let chats = [chat("a", "[work] orchard - a"), chat("b", "[work] orchard - b"), chat("c", "[work] orchard - c"),
+                     chat("x", "[work] mill - x"), chat("y", "[work] barn - y")]
+        let start = AutoFile.update(BoardLayout(), chats: chats)
+        let renamed = chats.map { $0.id == "c" ? chat("c", "[work] orchard - new task") : $0.id == "y" ? chat("y", "[work] barn - next") : $0 }
+        let layout = AutoFile.update(start, chats: renamed)
+        #expect(try #require(groupNamed(layout, "orchard")).chats == groupNamed(start, "orchard")?.chats)
+        #expect(layout.sections["work"]?.items == start.sections["work"]?.items)
+        #expect(layout.filedAs["c"] == "[work] orchard - new task")
+    }
+
     @Test func anAutoGroupBelowTwoChatsDissolvesInPlace() throws {
         let start = AutoFile.update(BoardLayout(), chats: [chat("a", "[work] orchard - a"), chat("b", "[work] orchard - b")])
         #expect(start.groups.count == 1)

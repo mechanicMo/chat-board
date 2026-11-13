@@ -20,10 +20,14 @@ public enum AutoFile {
         }
         let present = Set(roots.map(\.id))
 
-        // A renamed chat that was auto-filed is taken out and filed again under its new title.
+        // A renamed chat that was auto-filed is filed again, but only when its tag or project changed. Titles change
+        // with every new task, and a new task in the same project must not make the chat jump.
         for chat in roots where !layout.manual.contains(chat.id) {
-            if let filed = layout.filedAs[chat.id], filed != chat.title {
+            guard let filed = layout.filedAs[chat.id], filed != chat.title else { continue }
+            if place(TitleParse.parse(filed)) != place(TitleParse.parse(chat.title)) {
                 layout.remove(.chat(chat.id))
+            } else {
+                layout.filedAs[chat.id] = chat.title
             }
         }
 
@@ -50,6 +54,11 @@ public enum AutoFile {
         formGroups(&layout, titles: titles)
         dissolveGroups(&layout, present: present)
         return layout
+    }
+
+    // The part of a title that decides where a chat is filed.
+    static func place(_ parsed: ParsedTitle) -> [String?] {
+        [parsed.tag.map(TitleParse.key), parsed.project.map(TitleParse.key)]
     }
 
     // Where a newly filed chat goes: a matching group, else its tag's section (made if missing), else the top.

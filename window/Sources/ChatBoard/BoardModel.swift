@@ -193,6 +193,21 @@ final class BoardModel: ObservableObject {
         apply(Moves.move(layout, node, to: container, before: before))
     }
 
+    // The other loose chats beside this one, which it can be grouped with by hand.
+    func groupPartners(_ id: String) -> [Chat] {
+        guard let here = layout.container(of: .chat(id)) else { return [] }
+        if case .group = here { return [] }
+        let ids = layout.items(in: here).compactMap { if case .chat(let other) = $0, other != id { other } else { nil } }
+        return ids.compactMap { other in chats.first { $0.id == other } }
+    }
+
+    // Groups two loose chats by hand, named after their project when the title has one.
+    func makeGroup(_ id: String, with other: String) {
+        let title = chats.first { $0.id == other }?.title ?? ""
+        let name = TitleParse.parse(title).project ?? "New group"
+        apply(Moves.makeGroup(layout, dropping: id, onto: other, name: name))
+    }
+
     func ungroup(_ id: String) {
         if openGroupId == id { openGroupId = nil }
         apply(Moves.ungroup(layout, id))

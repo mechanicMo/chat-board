@@ -83,6 +83,12 @@ struct BoardState {
     func control(_ name: String) -> CGRect? {
         (raw["controls"] as? [String: Any])?[name].map(rect)
     }
+    // Cards ("group:<id>"), section headers ("section:<id>") and the ways home ("home:<name>").
+    var hits: [String: CGRect] { ((raw["hits"] as? [String: Any]) ?? [:]).mapValues(rect) }
+    func hit(_ prefix: String) -> (key: String, frame: CGRect)? {
+        hits.filter { $0.key.hasPrefix(prefix) && !$0.value.isNull }.sorted { $0.value.minY < $1.value.minY }.first.map { ($0.key, $0.value) }
+    }
+    var openGroup: String { raw["openGroup"] as? String ?? "" }
 }
 
 func rect(_ value: Any?) -> CGRect {
@@ -653,6 +659,63 @@ func pressMenuItem(_ title: String) throws {
     }
     AXUIElementPerformAction(item, kAXPressAction as CFString)
     pause(0.5)
+}
+
+// Sections and project groups
+
+func openFirstCard() throws -> String {
+    guard let card = board().hit("group:") else { throw Failure(message: "no project card on the board") }
+    try click(center(card.frame))
+    let id = String(card.key.dropFirst(6))
+    try check(waitFor(3) { board().openGroup == id }, "clicking the card didn't open its project")
+    return id
+}
+
+test("groups", "clicking a card opens its project, and the banner goes back") {
+    let before = board().rows.count
+    _ = try openFirstCard()
+    try check(board().rows.count != before, "the rows didn't change when the project opened")
+    try check(board().rows.allSatisfy { !$0.frame.isNull }, "a row of the project has no frame")
+    guard let banner = board().hit("home:banner") else { throw Failure(message: "no banner on the project page") }
+    try click(center(banner.frame))
+    try check(waitFor(3) { board().openGroup.isEmpty }, "the banner didn't go back to all chats")
+}
+
+test("groups", "a breadcrumb part also goes back") {
+    _ = try openFirstCard()
+    guard let crumb = board().hit("home:crumb-all") else { throw Failure(message: "no breadcrumb on the project page") }
+    try click(center(crumb.frame))
+    try check(waitFor(3) { board().openGroup.isEmpty }, "the breadcrumb didn't go back to all chats")
+}
+
+test("groups", "clicking a section header folds it away and back") {
+    let containers = savedLayout().containers
+    let rows = board().rows
+    guard let section = Set(rows.compactMap { containers[$0.id] }.filter { $0.hasPrefix("section:") }).sorted().first,
+          let header = board().hits[section] else { throw Failure(message: "no section with chats showing") }
+    let inside = rows.filter { containers[$0.id] == section }.count
+    try click(center(header))
+    try check(waitFor(3) { board().rows.count == rows.count - inside }, "the section's chats still show after folding it")
+    guard let again = board().hits[section] else { throw Failure(message: "the folded section has no header") }
+    try click(center(again))
+    try check(waitFor(3) { board().rows.count == rows.count }, "the section's chats didn't come back")
+}
+
+test("groups", "Move to from the right-click menu moves a chat into another section") {
+    let containers = savedLayout().containers
+    guard let row = board().rows.first(where: { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }) else {
+        throw Failure(message: "no loose chat in a section")
+    }
+    let from = containers[row.id]!
+    guard let target = Set(containers.values.filter { $0.hasPrefix("section:") && $0 != from }).sorted().first else {
+        throw Failure(message: "need a second section")
+    }
+    let layout = json(shareDir + "/layout.json")
+    let name = ((layout?["sections"] as? [String: [String: Any]])?[String(target.dropFirst(8))]?["name"] as? String) ?? ""
+    try rightClick(center(row.frame))
+    try pressMenuItem("Move to")
+    try pressMenuItem(name)
+    try check(waitFor(3) { savedLayout().containers[row.id] == target }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not \(target)")
 }
 
 test("config", "an unreadable config.json hides every chat and says so, and fixing it brings them back") {
