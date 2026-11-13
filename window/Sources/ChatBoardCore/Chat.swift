@@ -12,10 +12,11 @@ public struct Chat: Identifiable, Equatable, Sendable {
     public let finishedAt: Double      // when the chat last finished a turn
     public let viewedAt: Double        // when the person last had the chat in front of them
     public var depth = 0               // 1 when drawn under its parent
+    public let folder: String          // the last part of the folder the chat runs in, for matching it to a project
 
     public init(id: String, localId: String, title: String, kind: Kind, line: String, activeAt: Double,
                 focusedAt: Double, parentLocalId: String? = nil, finishedAt: Double = 0, viewedAt: Double = 0,
-                depth: Int = 0) {
+                depth: Int = 0, folder: String = "") {
         self.id = id
         self.localId = localId
         self.title = title
@@ -27,6 +28,7 @@ public struct Chat: Identifiable, Equatable, Sendable {
         self.finishedAt = finishedAt
         self.viewedAt = viewedAt
         self.depth = depth
+        self.folder = folder
     }
 }
 
@@ -59,6 +61,7 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         focusedAt: number(record["lastFocusedAt"]),
         parentLocalId: (record["spawnedFrom"] as? [String: Any])?["sessionId"] as? String,
         finishedAt: max(number(row?["repliedAt"]), number(record["lastTurnEdgeAt"])),
-        viewedAt: number(record["lastFocusedAt"])
+        viewedAt: number(record["lastFocusedAt"]),
+        folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""
     )
 }
