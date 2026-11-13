@@ -199,49 +199,15 @@ struct SearchField: View {
 
 struct BoardView: View {
     @ObservedObject var board: BoardModel
-    @State private var nodeFrames: [Node: CGRect] = [:]
-    @State private var dragging: Node?
-    @State private var dragOffset: CGFloat = 0
-    @State private var drop: (container: Container, before: Node?, lineY: CGFloat)?
-
-    // Where a drag at height y would land among `siblings`, the things it can be reordered with. On the project page
-    // the siblings are one status header's chats, so `after` gives the chat that follows them in the group's order.
-    private func landing(_ node: Node, at y: CGFloat, in container: Container, siblings: [Node], after: Node?) -> (Node?, CGFloat)? {
-        let others = siblings.filter { $0 != node }
-        if let below = others.first(where: { (nodeFrames[$0]?.midY ?? .infinity) > y }) {
-            return (below, (nodeFrames[below]?.minY ?? 0) - 2)
-        }
-        guard let last = others.last, let frame = nodeFrames[last] else { return nil }
-        return (after, frame.maxY + 1)
-    }
-
-    private func drag(_ node: Node, in container: Container, siblings: [Node], after: Node? = nil) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .named("list"))
-            .onChanged { value in
-                dragging = node
-                dragOffset = value.translation.height
-                if let (before, lineY) = landing(node, at: value.location.y, in: container, siblings: siblings, after: after) {
-                    drop = (container, before, lineY)
-                }
-            }
-            .onEnded { _ in
-                if let drop { board.move(node, to: drop.container, before: drop.before) }
-                dragging = nil
-                dragOffset = 0
-                drop = nil
-            }
-    }
-
-    // Draws a draggable thing: offset while it's being dragged, its frame reported for drops.
-    private func draggable<V: View>(_ view: V, _ node: Node, in container: Container, siblings: [Node], after: Node? = nil) -> some View {
-        let isMoving = dragging == node
-        return view
-            .background(reportNode(node))
-            .offset(y: isMoving ? dragOffset : 0)
-            .opacity(isMoving ? 0.8 : 1)
-            .zIndex(isMoving ? 1 : 0)
-            .contentShape(Rectangle())
-            .gesture(drag(node, in: container, siblings: siblings, after: after))
+    // Reports a draggable thing's frame and container, and fades it while it's being dragged. The drag itself is
+    // run by BoardModel from the panel's mouse events.
+    private func draggable<V: View>(_ view: V, _ node: Node, in container: Container) -> some View {
+        view
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: DragSlots.self,
+                                       value: [node: DropSlot(node: node, container: container, frame: geometry.frame(in: .global))])
+            })
+            .opacity(board.drag?.node == node ? 0.35 : 1)
     }
 
     private func row(_ chat: Chat, title: String? = nil) -> some View {
@@ -260,12 +226,12 @@ struct BoardView: View {
     }
 
     @ViewBuilder
-    private func entryView(_ entry: Tree.Entry, in container: Container, siblings: [Node]) -> some View {
+    private func entryView(_ entry: Tree.Entry, in container: Container) -> some View {
         switch entry {
         case .chat(let chat, let children):
             let inSection = container != .top
             VStack(spacing: 2) {
-                draggable(row(chat, title: inSection ? untaggedTitle(chat) : nil), .chat(chat.id), in: container, siblings: siblings)
+                draggable(row(chat, title: inSection ? untaggedTitle(chat) : nil), .chat(chat.id), in: container)
                 ForEach(children) { child in row(child, title: inSection ? untaggedTitle(child) : nil) }
             }
         case .group(let card):
@@ -279,7 +245,7 @@ struct BoardView: View {
                         MoveToMenu(board: board, node: .group(card.id))
                     }
                     .padding(.vertical, 2),
-                .group(card.id), in: container, siblings: siblings)
+                .group(card.id), in: container)
         }
     }
 
@@ -300,17 +266,15 @@ struct BoardView: View {
     // The whole board: sections with their cards and loose chats, and loose chats outside every section.
     @ViewBuilder
     private var home: some View {
-        let topNodes = board.tree.map(Self.node)
         ForEach(board.tree, id: \.key) { top in
             switch top {
             case .section(let block):
-                let inside = block.entries.map(Self.node)
                 // A faint panel marks where a section ends, so a loose chat after it never reads as part of it.
                 VStack(spacing: 2) {
                     SectionHeader(block: block).background(reportHit("section:" + block.id))
                     if !block.collapsed {
                         ForEach(block.entries, id: \.key) { entry in
-                            entryView(entry, in: .section(block.id), siblings: inside)
+                            entryView(entry, in: .section(block.id))
                         }
                     }
                 }
@@ -318,9 +282,9 @@ struct BoardView: View {
                 .padding(.bottom, block.collapsed ? 6 : 4)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.035)))
                 .padding(.vertical, 3)
-                .modifier(Dragged(view: self, node: .section(block.id), siblings: topNodes))
+                .modifier(Dragged(view: self, node: .section(block.id)))
             case .entry(let entry):
-                entryView(entry, in: .top, siblings: topNodes)
+                entryView(entry, in: .top)
             }
         }
     }
@@ -329,18 +293,14 @@ struct BoardView: View {
     private struct Dragged: ViewModifier {
         let view: BoardView
         let node: Node
-        let siblings: [Node]
-        func body(content: Content) -> some View { view.draggable(content, node, in: .top, siblings: siblings) }
+        func body(content: Content) -> some View { view.draggable(content, node, in: .top) }
     }
 
     // One project: its chats under Needs you, Ready to close and Working, reordered within each by dragging.
     @ViewBuilder
     private func page(_ card: Tree.Card) -> some View {
         let sections = Tree.page(card)
-        let order = board.items(in: .group(card.id))
         ForEach(sections, id: \.title) { section in
-            let roots = section.chats.filter { $0.depth == 0 }.map { Node.chat($0.id) }
-            let after = roots.last.flatMap { last in order.firstIndex(of: last) }.flatMap { order.indices.contains($0 + 1) ? order[$0 + 1] : nil }
             Text(section.title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -350,7 +310,7 @@ struct BoardView: View {
                 .padding(.top, 8)
             ForEach(section.chats) { chat in
                 if chat.depth == 0 {
-                    draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id), siblings: roots, after: after)
+                    draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id))
                 } else {
                     row(chat, title: taskTitle(chat))
                 }
@@ -425,11 +385,6 @@ struct BoardView: View {
                     if board.isSearching { results } else if let card { page(card) } else { home }
                 }
                 .padding(.vertical, 2)
-                .overlay(alignment: .topLeading) {
-                    if dragging != nil, let drop {
-                        Capsule().fill(Color.accentColor).frame(height: 3).offset(y: drop.lineY - 1.5)
-                    }
-                }
             }
             .coordinateSpace(name: "list")
             .onChange(of: board.selected) { _, index in
@@ -439,7 +394,7 @@ struct BoardView: View {
             // Opening a project, or going back, starts at the top of the list.
             .onChange(of: board.openGroupId) { _, _ in scroller.scrollTo("top", anchor: .top) }
             }
-            .onPreferenceChange(NodeFrames.self) { nodeFrames = $0 }
+            .onPreferenceChange(DragSlots.self) { board.slots = $0 }
             .onPreferenceChange(WindowFrames.self) { board.rowsInWindow = $0 }
         }
         .onPreferenceChange(ControlFrames.self) { board.controlsInWindow = $0 }
@@ -447,6 +402,8 @@ struct BoardView: View {
         .onPreferenceChange(HitFrames.self) { board.hitsInWindow = $0 }
         .padding(10)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
+        // While dragging: where it will land, and the dragged thing under the pointer.
+        .overlay(alignment: .topLeading) { DragOverlay(board: board) }
         // The whole board is framed while a project is open, so it never passes for the full list.
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -518,8 +475,25 @@ final class ClickThroughPanel: NSPanel {
     var keepsKeyboard: () -> Bool = { false }
     private var pressedAt: CGPoint?
 
+    // The board's drag handling: press, move and release, in the window's top-left space. A release returns true
+    // when it ended a drag, so that it isn't also taken for a click.
+    var onPress: ((CGPoint) -> Void)?
+    var onDrag: ((CGPoint) -> Void)?
+    var onRelease: ((CGPoint) -> Bool)?
+
+    private func topLeft(_ event: NSEvent) -> CGPoint {
+        CGPoint(x: event.locationInWindow.x, y: frame.height - event.locationInWindow.y)
+    }
+
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown { pressedAt = event.locationInWindow }
+        if event.type == .leftMouseDown { pressedAt = event.locationInWindow; onPress?(topLeft(event)) }
+        if event.type == .leftMouseDragged { onDrag?(topLeft(event)) }
+        if event.type == .leftMouseUp, onRelease?(topLeft(event)) == true {
+            pressedAt = nil
+            super.sendEvent(event)
+            returnFocusToClaude(from: self)
+            return
+        }
         if event.type == .leftMouseUp, let start = pressedAt {
             let end = event.locationInWindow
             var openedChat = false
@@ -865,6 +839,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = FirstClickHostingView(rootView: AnyView(BoardView(board: board).background(.regularMaterial)))
         let clickPanel = panel as! ClickThroughPanel
         clickPanel.onClick = { [weak board] point in board?.click(at: point) ?? false }
+        clickPanel.onPress = { [weak board] point in board?.mousePressed(at: point) }
+        clickPanel.onDrag = { [weak board] point in board?.mouseDragged(to: point) }
+        clickPanel.onRelease = { [weak board] point in board?.mouseReleased(at: point) ?? false }
         clickPanel.keepsKeyboard = { [weak board] in board?.isSearching ?? false }
         // Renaming a group asks in a small dialog. The board takes the keyboard for it, then hands it back to Claude.
         board.askName = { [weak clickPanel] current in

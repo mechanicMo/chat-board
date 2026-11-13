@@ -193,6 +193,71 @@ final class BoardModel: ObservableObject {
         apply(Moves.move(layout, node, to: container, before: before))
     }
 
+    // MARK: Dragging
+    // The panel reports the mouse (see ClickThroughPanel), so a drag lives here rather than in a view: it survives
+    // the project page switching back to the whole board while the button is still down.
+
+    struct DragState: Equatable {
+        var node: Node
+        var point: CGPoint
+        var label: String
+        var target: DropTarget?
+    }
+
+    // Everything draggable on screen, in window space, reported by the views.
+    var slots: [Node: DropSlot] = [:]
+    @Published private(set) var drag: DragState?
+    private var press: (node: Node, at: CGPoint)?
+    private var homeHover: Date?
+
+    private func label(_ node: Node) -> String {
+        switch node {
+        case .chat(let id): chats.first { $0.id == id }.map { TitleParse.parse($0.title).task } ?? ""
+        case .group(let id): layout.groups[id]?.name ?? ""
+        case .section(let id): layout.sections[id]?.name ?? ""
+        }
+    }
+
+    func mousePressed(at point: CGPoint) {
+        guard !isSearching, let node = Drop.pick(at: point, slots: Array(slots.values)) else { press = nil; return }
+        press = (node, point)
+    }
+
+    func mouseDragged(to point: CGPoint) {
+        guard let press else { return }
+        if drag == nil {
+            guard hypot(point.x - press.at.x, point.y - press.at.y) > 6 else { return }
+            drag = DragState(node: press.node, point: point, label: label(press.node), target: nil)
+        }
+        drag?.point = point
+        drag?.target = Drop.target(for: press.node, at: point, slots: Array(slots.values))
+        // Held on the banner or breadcrumb for half a second, the board goes back to all chats and the drag goes on.
+        let overHome = openGroupId != nil && hitsInWindow.contains { $0.key.hasPrefix("home") && $0.value.contains(point) }
+        if !overHome { homeHover = nil; return }
+        if homeHover == nil {
+            let started = Date()
+            homeHover = started
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, self.homeHover == started, self.drag != nil else { return }
+                self.homeHover = nil
+                self.goHome()
+            }
+        }
+    }
+
+    // True when the press was a drag, so the panel doesn't also treat it as a click.
+    @discardableResult
+    func mouseReleased(at point: CGPoint) -> Bool {
+        defer { press = nil; drag = nil; homeHover = nil }
+        guard let drag else { return false }
+        if let target = Drop.target(for: drag.node, at: point, slots: Array(slots.values)) {
+            apply(Drop.apply(layout, drag.node, target, name: { [chats] other in
+                chats.first { $0.id == other }.flatMap { TitleParse.parse($0.title).project } ?? "New group"
+            }))
+        }
+        return true
+    }
+
     // The other loose chats beside this one, which it can be grouped with by hand.
     func groupPartners(_ id: String) -> [Chat] {
         guard let here = layout.container(of: .chat(id)) else { return [] }

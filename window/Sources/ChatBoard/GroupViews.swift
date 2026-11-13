@@ -13,10 +13,10 @@ struct HitFrames: PreferenceKey {
     }
 }
 
-// Frames of everything that can be dragged, in the list's space, for working out where a drop lands.
-struct NodeFrames: PreferenceKey {
-    static let defaultValue: [Node: CGRect] = [:]
-    static func reduce(value: inout [Node: CGRect], nextValue: () -> [Node: CGRect]) {
+// Everything that can be dragged, with its container and window frame, for working out where a drop lands.
+struct DragSlots: PreferenceKey {
+    static let defaultValue: [Node: DropSlot] = [:]
+    static func reduce(value: inout [Node: DropSlot], nextValue: () -> [Node: DropSlot]) {
         value.merge(nextValue()) { $1 }
     }
 }
@@ -27,11 +27,6 @@ func reportHit(_ key: String) -> some View {
     }
 }
 
-func reportNode(_ node: Node) -> some View {
-    GeometryReader { geometry in
-        Color.clear.preference(key: NodeFrames.self, value: [node: geometry.frame(in: .named("list"))])
-    }
-}
 
 // The task part of a chat title, for rows inside a project where the tag and project would only repeat the header.
 func taskTitle(_ chat: Chat) -> String {
@@ -250,5 +245,66 @@ extension Tree.TopEntry {
         case .section(let block): "section:" + block.id
         case .entry(let entry): entry.key
         }
+    }
+}
+
+// Drawn over the whole board while dragging: a line where the thing will go, or an outline on the card or chat it
+// will join, and a label following the pointer. All in window space, from the slots the views report.
+struct DragOverlay: View {
+    @ObservedObject var board: BoardModel
+
+    private var line: CGRect? {
+        guard case .place(let container, let before)? = board.drag?.target else { return nil }
+        let slots = board.slots.values.filter { $0.container == container && $0.node != board.drag?.node }
+        if let before, let slot = board.slots[before] {
+            return CGRect(x: slot.frame.minX, y: slot.frame.minY - 2, width: slot.frame.width, height: 3)
+        }
+        if let last = slots.max(by: { $0.frame.maxY < $1.frame.maxY }) {
+            return CGRect(x: last.frame.minX, y: last.frame.maxY, width: last.frame.width, height: 3)
+        }
+        if case .section(let id) = container, let section = board.slots[.section(id)] {
+            return CGRect(x: section.frame.minX + 8, y: section.frame.maxY - 8, width: section.frame.width - 16, height: 3)
+        }
+        return nil
+    }
+
+    private var outline: CGRect? {
+        switch board.drag?.target {
+        case .into(let id)?: board.slots[.group(id)]?.frame
+        case .combine(let id)?: board.slots[.chat(id)]?.frame
+        default: nil
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let line {
+                Capsule().fill(Color.accentColor).frame(width: line.width, height: line.height)
+                    .offset(x: line.minX, y: line.minY)
+            }
+            if let outline {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.accentColor.opacity(0.12))
+                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.accentColor, lineWidth: 2))
+                    .frame(width: outline.width, height: outline.height)
+                    .offset(x: outline.minX, y: outline.minY)
+            }
+            if let drag = board.drag {
+                HStack(spacing: 6) {
+                    if case .combine? = drag.target { Image(systemName: "plus.circle.fill") }
+                    if case .into? = drag.target { Image(systemName: "arrow.down.circle.fill") }
+                    Text(drag.label).lineLimit(1)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(.regularMaterial))
+                .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1))
+                .fixedSize()
+                .offset(x: drag.point.x + 12, y: drag.point.y - 14)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 }

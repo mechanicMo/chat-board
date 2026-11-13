@@ -326,6 +326,32 @@ func drag(from start: CGPoint, to end: CGPoint) throws {
     pause(0.6)
 }
 
+// Presses at `start`, drags to `hold` and keeps the button down there for `seconds`, then drags to wherever `then`
+// says (asked only after the hold, since the board may have changed under the pointer) and lets go.
+func dragHolding(from start: CGPoint, hold: CGPoint, seconds: Double, then: () throws -> CGPoint) throws {
+    try guardFront()
+    mouse(.mouseMoved, start)
+    pause(0.05)
+    mouse(.leftMouseDown, start)
+    pause(0.1)
+    for step in 1...10 {
+        let t = Double(step) / 10
+        mouse(.leftMouseDragged, CGPoint(x: start.x + (hold.x - start.x) * t, y: start.y + (hold.y - start.y) * t))
+        pause(0.03)
+    }
+    let until = Date().addingTimeInterval(seconds)
+    while Date() < until { mouse(.leftMouseDragged, hold); pause(0.1) }
+    let end = try then()
+    for step in 1...10 {
+        let t = Double(step) / 10
+        mouse(.leftMouseDragged, CGPoint(x: hold.x + (end.x - hold.x) * t, y: hold.y + (end.y - hold.y) * t))
+        pause(0.03)
+    }
+    pause(0.1)
+    mouse(.leftMouseUp, end)
+    pause(0.6)
+}
+
 func center(_ rect: CGRect) -> CGPoint { CGPoint(x: rect.midX, y: rect.midY) }
 
 // A spot on the board with no row or control under it.
@@ -715,6 +741,54 @@ test("groups", "Move to from the right-click menu moves a chat into another sect
     try rightClick(center(row.frame))
     try pressMenuItem("Move to")
     try pressMenuItem(name)
+    try check(waitFor(3) { savedLayout().containers[row.id] == target }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not \(target)")
+}
+
+// Loose chats (not in a card) that sit in a section, top to bottom.
+func looseInSections() -> [Row] {
+    let containers = savedLayout().containers
+    return board().rows.filter { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }
+}
+
+test("groups", "dropping a loose chat on a card adds it to that project") {
+    guard let card = board().hit("group:"), let row = looseInSections().first else { throw Failure(message: "need a card and a loose chat") }
+    try drag(from: center(row.frame), to: center(card.frame))
+    let group = "group:" + card.key.dropFirst(6)
+    try check(waitFor(3) { savedLayout().containers[row.id] == group }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the card")
+}
+
+test("groups", "dropping a loose chat on another loose chat makes a new group of the two") {
+    let containers = savedLayout().containers
+    let pair = Dictionary(grouping: looseInSections()) { containers[$0.id] ?? "" }.values.first { $0.count >= 2 }
+    guard let pair else { throw Failure(message: "need two loose chats in one section") }
+    try drag(from: center(pair[1].frame), to: center(pair[0].frame))
+    try check(waitFor(3) {
+        let now = savedLayout().containers
+        return (now[pair[0].id] ?? "").hasPrefix("group:") && now[pair[0].id] == now[pair[1].id]
+    }, "the two chats aren't in one new group")
+}
+
+test("groups", "dragging a chat below everything takes it out of every section") {
+    guard let row = looseInSections().last else { throw Failure(message: "no loose chat in a section") }
+    try drag(from: center(row.frame), to: blankSpot())
+    try check(waitFor(3) { savedLayout().containers[row.id] == "top" }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the top level")
+}
+
+test("groups", "holding a dragged chat on the banner goes back to all chats, and the drop lands there") {
+    _ = try openFirstCard()
+    guard let row = board().rows.first(where: { $0.depth == 0 }), let banner = board().hit("home:banner") else {
+        throw Failure(message: "need a chat and the banner on the project page")
+    }
+    var target = ""
+    try dragHolding(from: center(row.frame), hold: center(banner.frame), seconds: 1.2) {
+        guard waitFor(2, { board().openGroup.isEmpty }) else { throw Failure(message: "holding on the banner didn't go back to all chats") }
+        let containers = savedLayout().containers
+        guard let anchor = board().rows.first(where: { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }) else {
+            throw Failure(message: "no loose chat in a section to drop beside")
+        }
+        target = containers[anchor.id]!
+        return CGPoint(x: anchor.frame.midX, y: anchor.frame.minY + 3)
+    }
     try check(waitFor(3) { savedLayout().containers[row.id] == target }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not \(target)")
 }
 
