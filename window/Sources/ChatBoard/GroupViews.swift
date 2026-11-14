@@ -65,6 +65,9 @@ struct StatusBar: View {
 
 struct SectionHeader: View {
     let block: Tree.SectionBlock
+    // The most urgent kind among the section's unread chats; nil when all are read, which dims the header.
+    var unreadKind: Kind? = nil
+    private var isUnread: Bool { unreadKind != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -74,15 +77,18 @@ struct SectionHeader: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 12)
                 Text(block.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: isUnread ? .bold : .semibold))
+                    .foregroundStyle(isUnread ? Color.primary : Color.secondary)
                     .textCase(.uppercase)
                 Spacer(minLength: 4)
+                if let kind = unreadKind {
+                    Circle().fill(kind.color).frame(width: 8, height: 8)
+                }
                 Text("\(block.counts.values.reduce(0, +))")
                     .font(.system(size: 12).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
-            if block.collapsed { StatusBar(counts: block.counts, height: 3) }
+            if block.collapsed { StatusBar(counts: block.counts, height: 3).opacity(isUnread ? 1 : 0.4) }
         }
         .padding(.horizontal, 6)
         .padding(.top, 8)
@@ -101,8 +107,8 @@ struct GroupCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(card.name)
-                    .font(.system(size: 16, weight: isUnread ? .bold : .semibold))
-                    .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.8))
+                    .font(.system(size: 16, weight: isUnread ? .bold : .regular))
+                    .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62))
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if isUnread, let lead = card.lead { Circle().fill(lead.kind.color).frame(width: 8, height: 8) }
@@ -111,14 +117,17 @@ struct GroupCardView: View {
                     .foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
             }
-            StatusBar(counts: card.counts)
+            // Read cards dim like a read chat row, so a bright card always means something new inside.
+            StatusBar(counts: card.counts).opacity(isUnread ? 1 : 0.4)
             if let lead = card.lead {
                 HStack(alignment: .top, spacing: 6) {
-                    Circle().fill(lead.kind.color).frame(width: 7, height: 7).padding(.top, 5)
+                    Circle().fill(lead.kind.color.opacity(isUnread ? 1 : 0.4)).frame(width: 7, height: 7).padding(.top, 5)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(taskTitle(lead)).font(.system(size: 14)).lineLimit(1)
+                        Text(taskTitle(lead)).font(.system(size: 14))
+                            .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62)).lineLimit(1)
                         if !lead.line.isEmpty {
-                            Text(lead.line).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(lead.line).font(.system(size: 13))
+                                .foregroundStyle(Color.primary.opacity(isUnread ? 0.75 : 0.42)).lineLimit(1)
                         }
                     }
                 }

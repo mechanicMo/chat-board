@@ -271,7 +271,7 @@ struct BoardView: View {
             case .section(let block):
                 // A faint panel marks where a section ends, so a loose chat after it never reads as part of it.
                 VStack(spacing: 2) {
-                    SectionHeader(block: block).background(reportHit("section:" + block.id))
+                    SectionHeader(block: block, unreadKind: board.unreadKind(block)).background(reportHit("section:" + block.id))
                     if !block.collapsed {
                         ForEach(block.entries, id: \.key) { entry in
                             entryView(entry, in: .section(block.id))

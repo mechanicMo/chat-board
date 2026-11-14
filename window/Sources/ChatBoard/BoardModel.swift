@@ -317,6 +317,18 @@ final class BoardModel: ObservableObject {
 
     func isUnread(_ card: Tree.Card) -> Bool { card.chats.contains { isUnread($0) } }
 
+    // A section lights up when any chat in it is unread, with the dot in the most urgent unread chat's color.
+    func unreadKind(_ block: Tree.SectionBlock) -> Kind? {
+        let chats = block.entries.flatMap { entry -> [Chat] in
+            switch entry {
+            case .chat(let chat, let children): [chat] + children
+            case .group(let card): card.chats
+            }
+        }
+        let unread = Set(chats.filter { isUnread($0) }.map(\.kind))
+        return [Kind.question, .yourMove, .ready, .working].first { unread.contains($0) }
+    }
+
     func holdsCurrent(_ card: Tree.Card) -> Bool { card.chats.contains { $0.id == currentId } }
 
     private func readOrder() -> [String] {
