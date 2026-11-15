@@ -51,6 +51,7 @@ final class BoardModel: ObservableObject {
     private var recordCache: [String: (mtime: Double, record: [String: Any])] = [:]
     private var rowCache: [String: (mtime: Double, row: [String: Any])] = [:]
     private var pendingArchive: [String: String] = [:]  // localId -> title
+    private var pendingDetach: [String: String] = [:]   // localId -> title
     private var timer: Timer?
     private var configWasUnreadable = false
 
@@ -116,6 +117,7 @@ final class BoardModel: ObservableObject {
         if next != chats { chats = next }
         refreshLayout(list)
         settleArchives()
+        settleDetaches()
     }
 
     // MARK: Sections and project groups
@@ -457,6 +459,35 @@ final class BoardModel: ObservableObject {
         }
         pendingArchive[chat.localId] = chat.title
         notice.text = "Archiving \(chat.title)..."
+    }
+
+    func detach(_ chat: Chat) {
+        guard let parent = chat.parentLocalId else { return }
+        let dir = shareDir + "/requests"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let request = DetachRequest(localId: chat.localId, parentLocalId: parent, title: chat.title)
+        if let data = request.data() {
+            FileManager.default.createFile(atPath: "\(dir)/\(request.fileName)", contents: data)
+        }
+        pendingDetach[chat.localId] = chat.title
+        notice.text = "Moving \(chat.title) to top level..."
+    }
+
+    // Only the side chat itself or the chat that started it can do this, so one of them has to be open.
+    private func settleDetaches() {
+        for (localId, title) in pendingDetach {
+            let clear = { for name in DetachRequest.fileNames(localId) { try? FileManager.default.removeItem(atPath: "\(shareDir)/requests/\(name)") } }
+            if let result = json("\(shareDir)/requests/\(DetachRequest.resultFileName(localId))") {
+                notice.text = result["text"] as? String ?? "Moved \(title) to top level."
+                pendingDetach[localId] = nil
+                clear()
+            } else if let request = json("\(shareDir)/requests/detach-\(localId).json"),
+                      Date().timeIntervalSince1970 * 1000 - number(request["at"]) > 20000 {
+                notice.text = "Couldn't move \(title): open it, or the chat that started it, and try again."
+                pendingDetach[localId] = nil
+                clear()
+            }
+        }
     }
 
     private func clearRequest(_ localId: String) {

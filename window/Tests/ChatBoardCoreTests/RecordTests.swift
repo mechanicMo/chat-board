@@ -45,6 +45,11 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(side?.parentLocalId == "local_0")
     }
 
+    @Test func aChatDetachedToTopLevelHasNoParent() {
+        let detached = chat(record: record(["spawnedFrom": ["sessionId": "local_0"], "lineageDetached": true]), row: nil, privateFolders: [])
+        #expect(detached?.parentLocalId == nil)
+    }
+
     @Test func privateFolderAndAnythingInsideItIsHidden() {
         let folders = ["/Users/someone/private"]
         #expect(chat(record: record(["cwd": "/Users/someone/private"]), row: nil, privateFolders: folders) == nil)
@@ -97,6 +102,16 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
 }
 
 @Suite struct ArchiveRequestTests {
+    @Test func aDetachRequestNamesTheChatAndItsParent() throws {
+        let request = DetachRequest(localId: "local_kid", parentLocalId: "local_mom", title: "Side", at: 5)
+        #expect(request.fileName == "detach-local_kid.json")
+        let data = try #require(request.data())
+        let parsed = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(parsed["type"] as? String == "detach")
+        #expect(parsed["localId"] as? String == "local_kid")
+        #expect(parsed["parentLocalId"] as? String == "local_mom")
+    }
+
     @Test func requestCarriesAFreshLongTokenAndTheRightFileName() throws {
         let request = ArchiveRequest(localId: "local_abc", title: "Old chat", at: 123)
         #expect(request.fileName == "archive-local_abc.json")

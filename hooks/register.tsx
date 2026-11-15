@@ -204,6 +204,29 @@ const archive = async ($: EngineInterface, localId: string, name: string, token:
   }
 }
 
+// "Detach to top level" through the app's own tool. The app only lets a chat detach a side chat it started, or
+// itself ("self") when another chat's Claude started it, so only the child or its parent can carry this out.
+const detach = async ($: EngineInterface, sessionId: string, name: string): Promise<string> => {
+  try {
+    const answer = await $.mcp.call('ccd_session_mgmt', 'detach_session', { session_id: sessionId })
+    const said = (answer.content ?? [])
+      .map(block => (block && typeof block === 'object' && 'text' in block ? String((block as { text: unknown }).text) : ''))
+      .join(' ')
+      .trim()
+    return answer.isError ? `Couldn't detach ${name}: ${said}` : said || `Moved ${name} to top level.`
+  } catch (failure) {
+    return `Couldn't detach ${name}: ${String(failure).slice(0, 160)}`
+  }
+}
+
+// Which session id this chat passes to detach a request's chat, or null when it is neither the child nor its parent.
+export const detachTarget = (mine: string | undefined, localId: string, parentLocalId: unknown): string | null => {
+  if (!mine) return null
+  if (mine === localId) return 'self'
+  if (typeof parentLocalId === 'string' && mine === parentLocalId) return localId
+  return null
+}
+
 // The Chat Board window can't reach the app's archive tool, so it leaves a request file. The first open chat to
 // claim one carries it out and writes the app's answer back for the window to show.
 const handleRequests = async ($: EngineInterface) => {
@@ -218,6 +241,25 @@ const handleRequests = async ($: EngineInterface) => {
   const self = await $.session.id()
   const mine = (await read($, row))?.localId
   for (const name of names) {
+    const detachMatch = /^detach-(local_[A-Za-z0-9-]+)\.json$/.exec(name)
+    if (detachMatch) {
+      const localId = detachMatch[1]!
+      const base = dir + '/requests/detach-' + localId
+      if (names.includes(`detach-${localId}.result.json`) || names.includes(`detach-${localId}.claimed`)) continue
+      try {
+        const request = JSON.parse(await $.fs.read(base + '.json')) as { at?: unknown; title?: unknown; parentLocalId?: unknown }
+        if (typeof request.at !== 'number' || (await $.clock.now()) - request.at > TOKEN_LIFE) continue
+        const target = detachTarget(mine, localId, request.parentLocalId)
+        if (!target) continue
+        await $.fs.write(base + '.claimed', self)
+        if ((await $.fs.read(base + '.claimed')) !== self) continue
+        const text = await detach($, target, typeof request.title === 'string' ? request.title : 'that chat')
+        await $.fs.write(base + '.result.json', JSON.stringify({ text, at: await $.clock.now() }))
+      } catch {
+        // Unreadable or half-written request: leave it for the next pass.
+      }
+      continue
+    }
     const match = /^archive-(local_[A-Za-z0-9-]+)\.json$/.exec(name)
     if (!match) continue
     const localId = match[1]!
@@ -274,7 +316,7 @@ export const register: Register = on => {
       },
       isDeferred: false,
     })
-    // Archive requests from the Chat Board window, checked on local disk only.
+    // Archive and detach requests from the Chat Board window, checked on local disk only.
     $.clock.every(5000, () => handleRequests($))
 
     return ran

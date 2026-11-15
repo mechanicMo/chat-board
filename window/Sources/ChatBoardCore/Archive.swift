@@ -30,3 +30,31 @@ public struct ArchiveRequest {
 
     public func data() -> Data? { try? JSONSerialization.data(withJSONObject: json) }
 }
+
+// "Detach to top level" for a side chat. The app only lets the child itself or its parent do this, so the request
+// names both, and only those two chats' mods pick it up. Detaching only changes nesting, so no one-time code.
+public struct DetachRequest {
+    public let localId: String
+    public let parentLocalId: String
+    public let title: String
+    public let at: Double
+
+    public init(localId: String, parentLocalId: String, title: String, at: Double = Date().timeIntervalSince1970 * 1000) {
+        self.localId = localId
+        self.parentLocalId = parentLocalId
+        self.title = title
+        self.at = at
+    }
+
+    public var fileName: String { "detach-\(localId).json" }
+    public static func resultFileName(_ localId: String) -> String { "detach-\(localId).result.json" }
+    public static func fileNames(_ localId: String) -> [String] {
+        [".json", ".claimed", ".result.json"].map { "detach-\(localId)\($0)" }
+    }
+
+    public var json: [String: Any] {
+        ["type": "detach", "localId": localId, "parentLocalId": parentLocalId, "title": title, "at": at]
+    }
+
+    public func data() -> Data? { try? JSONSerialization.data(withJSONObject: json) }
+}

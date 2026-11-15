@@ -463,6 +463,36 @@ test('an archive request from the Chat Board window is carried out once and answ
   expect(JSON.parse(files.get('/Users/alex/.claude/chat-hud/requests/archive-local_old.result.json')!.text).text).toBe('Archived.')
 })
 
+test('a detach request is carried out only by the chat itself or its parent', async ($, on) => {
+  const clock = mock.clock(on, { now: 1793900000000 })
+  const { files } = engine(on, answered)
+  const calls: string[] = []
+  on('mcp.call', (_: unknown, e: any) => {
+    calls.push(JSON.stringify(e))
+    return { value: { content: [{ type: 'text', text: 'Detached.' }] } }
+  })
+  const request = (localId: string, parentLocalId: string) =>
+    files.set(`/Users/alex/.claude/chat-hud/requests/detach-${localId}.json`, {
+      text: JSON.stringify({ type: 'detach', localId, parentLocalId, title: 'Side chat', at: 1793900000000 }),
+      mtimeMs: 1,
+    })
+  request('local_kid', 'local_abc')      // this chat is the parent
+  request('local_abc', 'local_mom')      // this chat is the child
+  request('local_other', 'local_someone') // neither: left for another chat
+
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await clock.advance(6000)
+  await clock.settle()
+  await clock.advance(6000)
+  await clock.settle()
+
+  expect(calls.length).toBe(2)
+  expect(calls.some(one => one.includes('detach_session') && one.includes('"session_id":"local_kid"'))).toBe(true)
+  expect(calls.some(one => one.includes('detach_session') && one.includes('"session_id":"self"'))).toBe(true)
+  expect(JSON.parse(files.get('/Users/alex/.claude/chat-hud/requests/detach-local_kid.result.json')!.text).text).toBe('Detached.')
+  expect(files.get('/Users/alex/.claude/chat-hud/requests/detach-local_other.result.json')).toBeUndefined()
+})
+
 test('each chat writes its status to the shared file the Chat Board window reads', async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const { files } = engine(on, answered)

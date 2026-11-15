@@ -59,7 +59,9 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         line: line,
         activeAt: max(number(record["lastActivityAt"]), number(row?["userAt"]), number(row?["repliedAt"])),
         focusedAt: number(record["lastFocusedAt"]),
-        parentLocalId: (record["spawnedFrom"] as? [String: Any])?["sessionId"] as? String,
+        // "Detach to top level" keeps spawnedFrom and adds lineageDetached, so a detached chat has no parent.
+        parentLocalId: record["lineageDetached"] as? Bool == true
+            ? nil : (record["spawnedFrom"] as? [String: Any])?["sessionId"] as? String,
         finishedAt: max(number(row?["repliedAt"]), number(record["lastTurnEdgeAt"])),
         viewedAt: number(record["lastFocusedAt"]),
         folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""

@@ -242,6 +242,7 @@ struct BoardView: View {
                 Button("Open") { board.open(chat) }
                 if chat.depth == 0 { MoveToMenu(board: board, node: .chat(chat.id)) }
                 PriorityMenu(board: board, node: .chat(chat.id))
+                if chat.depth > 0 { Button("Detach to top level") { board.detach(chat) } }
                 Divider()
                 Button("Archive") { board.archive(chat) }
             }
