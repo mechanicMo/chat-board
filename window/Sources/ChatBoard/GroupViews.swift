@@ -234,7 +234,7 @@ struct MoveToMenu: View {
                     }
                 }
             }
-            Button("Out of all groups and sections") { board.move(node, to: .top, before: board.items(in: .top).first) }
+            Button("Out of its project") { board.move(node, to: .top, before: board.items(in: .top).first) }
                 .disabled(here == .top)
         }
     }

@@ -12,11 +12,27 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
 }
 
 @Suite struct AutoFileTests {
-    @Test func aTaggedChatGoesToTheTopOfANewSection() {
+    @Test func aTaggedChatGoesToTheTopOfTheBoardWithNoSection() {
         let layout = AutoFile.update(BoardLayout(top: [.chat("old")]), chats: [chat("old", "Untitled"), chat("a", "[Work] orchard - pick")])
-        #expect(layout.top == [.section("work"), .chat("old")])
-        #expect(layout.sections["work"]?.name == "Work")
-        #expect(layout.sections["work"]?.items == [.chat("a")])
+        #expect(layout.top == [.chat("a"), .chat("old")])
+        #expect(layout.sections.isEmpty)
+    }
+
+    @Test func savedSectionsFoldOntoTheBoardInPlace() {
+        let start = BoardLayout(top: [.chat("x"), .section("work"), .chat("y")],
+                                sections: ["work": TagSection(id: "work", name: "work", items: [.group("g"), .chat("solo")])],
+                                groups: ["g": ProjectGroup(id: "g", name: "mine", chats: ["a", "b"], isManual: true)],
+                                manual: ["a", "b", "x", "y", "solo"])
+        let chats = [chat("x", "x"), chat("y", "y"), chat("solo", "[work] mill - s"), chat("a", "a"), chat("b", "b")]
+        let layout = AutoFile.update(start, chats: chats)
+        #expect(layout.top == [.chat("x"), .group("g"), .chat("solo"), .chat("y")])
+        #expect(layout.sections.isEmpty)
+    }
+
+    @Test func oneProjectUnderTwoTagsIsOneCard() throws {
+        let layout = AutoFile.update(BoardLayout(), chats: [chat("a", "[client] orchard - a"), chat("b", "[home] orchard - b")])
+        #expect(try #require(groupNamed(layout, "orchard")).chats.count == 2)
+        #expect(layout.top.count == 1)
     }
 
     @Test func anUntaggedChatGoesToTheTopOfTheBoard() {
@@ -25,13 +41,12 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
     }
 
     @Test func twoChatsSharingAProjectFormAGroupWhereTheUpperOneWas() throws {
-        let start = BoardLayout(top: [.section("work")],
-                                sections: ["work": TagSection(id: "work", name: "work", items: [.chat("solo"), .chat("a")])],
+        let start = BoardLayout(top: [.chat("solo"), .chat("a")],
                                 filedAs: ["solo": "[work] mill - x", "a": "[work] Orchard - pick"])
         let chats = [chat("solo", "[work] mill - x"), chat("a", "[work] Orchard - pick"), chat("b", "[work] orchard - paint")]
         let layout = AutoFile.update(start, chats: chats)
         let group = try #require(groupNamed(layout, "orchard"))
-        #expect(layout.sections["work"]?.items == [.group(group.id), .chat("solo")])
+        #expect(layout.top == [.group(group.id), .chat("solo")])
         #expect(group.chats == ["b", "a"])
         #expect(!group.isManual)
     }
@@ -39,7 +54,7 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
     @Test func oneChatAloneStaysLoose() {
         let layout = AutoFile.update(BoardLayout(), chats: [chat("a", "[work] orchard - pick")])
         #expect(layout.groups.isEmpty)
-        #expect(layout.sections["work"]?.items == [.chat("a")])
+        #expect(layout.top == [.chat("a")])
     }
 
     @Test func aProjectThatExtendsAGroupNameJoinsIt() throws {
@@ -49,7 +64,7 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         #expect(try #require(groupNamed(layout, "orchard")).chats.first == "c")
     }
 
-    @Test func theColonFormJoinsAMatchingGroupInAnySection() throws {
+    @Test func theColonFormJoinsAMatchingGroup() throws {
         let start = AutoFile.update(BoardLayout(), chats: [chat("a", "[work] orchard - a"), chat("b", "[work] orchard - b")])
         let layout = AutoFile.update(start, chats: [chat("a", "[work] orchard - a"), chat("b", "[work] orchard - b"),
                                                    chat("c", "Orchard: write guides")])
@@ -74,8 +89,8 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         let start = AutoFile.update(BoardLayout(), chats: [chat("a", "Untitled chat")])
         #expect(start.top == [.chat("a")])
         let layout = AutoFile.update(start, chats: [chat("a", "[home] garage - shelves")])
-        #expect(layout.sections["home"]?.items == [.chat("a")])
-        #expect(!layout.top.contains(.chat("a")))
+        #expect(layout.filedAs["a"] == "[home] garage - shelves")
+        #expect(layout.top == [.chat("a")])
     }
 
     @Test func aNewTaskInTheSameProjectKeepsTheChatsSpot() throws {
@@ -85,7 +100,7 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         let renamed = chats.map { $0.id == "c" ? chat("c", "[work] orchard - new task") : $0.id == "y" ? chat("y", "[work] barn - next") : $0 }
         let layout = AutoFile.update(start, chats: renamed)
         #expect(try #require(groupNamed(layout, "orchard")).chats == groupNamed(start, "orchard")?.chats)
-        #expect(layout.sections["work"]?.items == start.sections["work"]?.items)
+        #expect(layout.top == start.top)
         #expect(layout.filedAs["c"] == "[work] orchard - new task")
     }
 
@@ -94,7 +109,7 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         #expect(start.groups.count == 1)
         let layout = AutoFile.update(start, chats: [chat("a", "[work] orchard - a")])
         #expect(layout.groups.isEmpty)
-        #expect(layout.sections["work"]?.items.contains(.chat("a")) == true)
+        #expect(layout.top.contains(.chat("a")))
     }
 
     @Test func aManualGroupWithOneChatStaysAndWithNoneGoes() {

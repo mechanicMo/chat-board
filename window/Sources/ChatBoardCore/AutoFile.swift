@@ -1,10 +1,12 @@
 import Foundation
 
-// Files chats into sections and project groups from their titles, so related tasks sit together without anyone
-// sorting them. Runs on every refresh and is idempotent: a layout already up to date comes back unchanged.
+// Files chats into project groups from their titles, so related tasks sit together without anyone sorting them.
+// Runs on every refresh and is idempotent: a layout already up to date comes back unchanged.
 //
-// - A new chat (or one renamed since it was filed) goes to the top of the group its project matches, else the top of
-//   its tag's section, else the top of the board.
+// - The board has no tag sections (Mo, 2026-11-14: "just projects"). A layout saved with sections has each one
+//   folded back onto the board where it stood, its cards and chats in the same order.
+// - A new chat (or one renamed to another project) goes to the top of the group its project matches, else the top
+//   of the board.
 // - Loose chats in one place that share a project form a group, once there are two of them.
 // - A group made this way dissolves back into loose chats when fewer than two of its chats are open. A group the
 //   person made or changed stays until none of its chats are open.
@@ -12,6 +14,7 @@ import Foundation
 public enum AutoFile {
     public static func update(_ start: BoardLayout, chats: [Chat], priorOrder: [String] = []) -> BoardLayout {
         var layout = start
+        flattenSections(&layout)
         let localIds = Set(chats.map(\.localId))
         // Side sessions are drawn under their parent, so only chats without an open parent are filed.
         let roots = chats.filter { chat in
@@ -20,7 +23,7 @@ public enum AutoFile {
         }
         let present = Set(roots.map(\.id))
 
-        // A renamed chat that was auto-filed is filed again, but only when its tag or project changed. Titles change
+        // A renamed chat that was auto-filed is filed again, but only when its project changed. Titles change
         // with every new task, and a new task in the same project must not make the chat jump.
         for chat in roots where !layout.manual.contains(chat.id) {
             guard let filed = layout.filedAs[chat.id], filed != chat.title else { continue }
@@ -57,23 +60,27 @@ public enum AutoFile {
     }
 
     // The part of a title that decides where a chat is filed.
-    static func place(_ parsed: ParsedTitle) -> [String?] {
-        [parsed.tag.map(TitleParse.key), parsed.project.map(TitleParse.key)]
+    static func place(_ parsed: ParsedTitle) -> String? {
+        parsed.project.map(TitleParse.key)
     }
 
-    // Where a newly filed chat goes: a matching group, else its tag's section (made if missing), else the top.
+    // Each section's cards and chats take the section's spot on the board, and the section goes.
+    static func flattenSections(_ layout: inout BoardLayout) {
+        guard !layout.sections.isEmpty || layout.top.contains(where: { if case .section = $0 { true } else { false } }) else { return }
+        layout.top = layout.top.flatMap { node -> [Node] in
+            if case .section(let id) = node { return layout.sections[id]?.items ?? [] }
+            return [node]
+        }
+        layout.sections = [:]
+    }
+
+    // Where a newly filed chat goes: a matching group, else the top of the board.
     static func home(for chat: Chat, in layout: inout BoardLayout) -> Container {
         let parsed = TitleParse.parse(chat.title)
-        let sectionId = parsed.tag.map(TitleParse.key)
-        if let group = matchGroup(parsed.project, folder: chat.folder, preferring: sectionId, in: layout) {
+        if let group = matchGroup(parsed.project, folder: chat.folder, preferring: nil, in: layout) {
             return .group(group)
         }
-        guard let tag = parsed.tag, let sectionId else { return .top }
-        if layout.sections[sectionId] == nil {
-            layout.sections[sectionId] = TagSection(id: sectionId, name: tag)
-        }
-        if !layout.top.contains(.section(sectionId)) { layout.top.insert(.section(sectionId), at: 0) }
-        return .section(sectionId)
+        return .top
     }
 
     // True when `short` is `long` or its first word or words: "orchard" covers "orchard games".
