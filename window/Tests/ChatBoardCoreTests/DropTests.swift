@@ -65,6 +65,18 @@ private let slots: [DropSlot] = [
         #expect(Drop.target(for: .chat("a"), at: CGPoint(x: 10, y: 75), slots: page) == .place(.group("g"), before: nil))
     }
 
+    // Cards open in place on the board (2026-11-14), so a chat inside one is dragged out from the board, where its
+    // card is drawn too. Let go below everything, it leaves the project, unlike on the project page.
+    @Test func aChatDraggedOutOfAnOpenCardToBlankSpaceLeavesTheProject() {
+        let board: [DropSlot] = [
+            DropSlot(node: .group("g"), container: .top, frame: CGRect(x: 0, y: 0, width: 300, height: 120)),
+            DropSlot(node: .chat("in1"), container: .group("g"), frame: CGRect(x: 0, y: 40, width: 300, height: 40)),
+            DropSlot(node: .chat("in2"), container: .group("g"), frame: CGRect(x: 0, y: 80, width: 300, height: 40)),
+            DropSlot(node: .chat("loose"), container: .top, frame: CGRect(x: 0, y: 130, width: 300, height: 40)),
+        ]
+        #expect(Drop.target(for: .chat("in1"), at: CGPoint(x: 10, y: 400), slots: board) == .place(.top, before: nil))
+    }
+
     @Test func applyingATargetMovesThroughTheSameRules() throws {
         let layout = BoardLayout(top: [.chat("top1"), .section("work")],
                                  sections: ["work": TagSection(id: "work", name: "work", items: [.group("g"), .chat("w1")])],

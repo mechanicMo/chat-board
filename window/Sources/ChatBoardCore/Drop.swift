@@ -51,8 +51,11 @@ public enum Drop {
 
         guard let under = others.filter({ $0.frame.contains(point) })
                 .min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
-            // Outside everything: the top level, or on a project page the group being shown.
-            if case .group? = mine?.container { return place(in: mine!.container) }
+            // Outside everything: the top level, or on a project page the group being shown. A project page draws no
+            // card for its group; on the board an open card does, and a chat dragged out of it goes to the top level.
+            if case .group(let id)? = mine?.container, !slots.contains(where: { $0.node == .group(id) }) {
+                return place(in: mine!.container)
+            }
             return place(in: .top)
         }
         if case .section(let id) = under.node { return place(in: .section(id)) }

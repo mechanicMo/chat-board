@@ -709,12 +709,11 @@ test("groups", "clicking a card folds it and opens it again, without leaving the
     guard let card = board().hit("group:") else { throw Failure(message: "no project card on the board") }
     let id = String(card.key.dropFirst(6))
     let wasFolded = savedFolded().contains(id)
-    let onName = CGPoint(x: card.frame.minX + 50, y: card.frame.minY + 14)
-    try click(onName)
+    try click(onName(card.frame))
     try check(waitFor(3) { savedFolded().contains(id) != wasFolded }, "clicking the card didn't fold or open it")
     try check(board().openGroup.isEmpty, "clicking the card opened its project page")
     guard let again = board().hit("group:" + id) else { throw Failure(message: "the card left the board") }
-    try click(CGPoint(x: again.frame.minX + 50, y: again.frame.minY + 14))
+    try click(onName(again.frame))
     try check(waitFor(3) { savedFolded().contains(id) == wasFolded }, "a second click didn't put the card back")
 }
 
@@ -735,53 +734,65 @@ test("groups", "a breadcrumb part also goes back") {
     try check(waitFor(3) { board().openGroup.isEmpty }, "the breadcrumb didn't go back to all chats")
 }
 
-test("groups", "clicking a section header folds it away and back") {
-    let containers = savedLayout().containers
-    let rows = board().rows
-    guard let section = Set(rows.compactMap { containers[$0.id] }.filter { $0.hasPrefix("section:") }).sorted().first,
-          let header = board().hits[section] else { throw Failure(message: "no section with chats showing") }
-    let inside = rows.filter { containers[$0.id] == section }.count
-    try click(center(header))
-    try check(waitFor(3) { board().rows.count == rows.count - inside }, "the section's chats still show after folding it")
-    guard let again = board().hits[section] else { throw Failure(message: "the folded section has no header") }
-    try click(center(again))
-    try check(waitFor(3) { board().rows.count == rows.count }, "the section's chats didn't come back")
+// The board has no tag sections since 5765673 (Mo, 2026-11-14: "just projects"): chats sit loose on the board or in a
+// project card. These tests use that shape.
+
+// A point on a card's name line: inside the card, away from the chats shown in it and its right arrow.
+func onName(_ card: CGRect) -> CGPoint { CGPoint(x: card.minX + 50, y: card.minY + 14) }
+
+func groupName(_ id: String) -> String {
+    ((json(shareDir + "/layout.json")?["groups"] as? [String: [String: Any]])?[id]?["name"] as? String) ?? ""
 }
 
-test("groups", "Move to from the right-click menu moves a chat into another section") {
+// Chats loose on the board (not in a card), top to bottom.
+func looseOnBoard() -> [Row] {
     let containers = savedLayout().containers
-    guard let row = board().rows.first(where: { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }) else {
-        throw Failure(message: "no loose chat in a section")
+    return board().rows.filter { $0.depth == 0 && containers[$0.id] == "top" }
+}
+
+test("groups", "a folded card hides its chats, and opening it brings them back") {
+    guard let card = board().hit("group:") else { throw Failure(message: "no project card on the board") }
+    let id = String(card.key.dropFirst(6))
+    let group = "group:" + id
+    // Start from the card open, so its chats are on screen to count.
+    if savedFolded().contains(id) {
+        try click(onName(card.frame))
+        guard waitFor(3, { !savedFolded().contains(id) }) else { throw Failure(message: "couldn't open the card to start") }
     }
-    let from = containers[row.id]!
-    guard let target = Set(containers.values.filter { $0.hasPrefix("section:") && $0 != from }).sorted().first else {
-        throw Failure(message: "need a second section")
+    let rows = board().rows.count
+    let inside = board().rows.filter { savedLayout().containers[$0.id] == group }.count
+    try check(inside > 0, "the open card shows none of its chats")
+    guard let open = board().hit(group) else { throw Failure(message: "the card left the board") }
+    try click(onName(open.frame))
+    try check(waitFor(3) { board().rows.count == rows - inside }, "the card's chats still show after folding it")
+    guard let folded = board().hit(group) else { throw Failure(message: "the folded card left the board") }
+    try click(onName(folded.frame))
+    try check(waitFor(3) { board().rows.count == rows }, "the card's chats didn't come back")
+}
+
+test("groups", "Move to from the right-click menu moves a loose chat into a project") {
+    guard let row = looseOnBoard().first, let card = board().hit("group:") else {
+        throw Failure(message: "need a loose chat and a card")
     }
-    let layout = json(shareDir + "/layout.json")
-    let name = ((layout?["sections"] as? [String: [String: Any]])?[String(target.dropFirst(8))]?["name"] as? String) ?? ""
+    let id = String(card.key.dropFirst(6))
     try rightClick(center(row.frame))
     try pressMenuItem("Move to")
-    try pressMenuItem(name)
-    try check(waitFor(3) { savedLayout().containers[row.id] == target }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not \(target)")
-}
-
-// Loose chats (not in a card) that sit in a section, top to bottom.
-func looseInSections() -> [Row] {
-    let containers = savedLayout().containers
-    return board().rows.filter { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }
+    try pressMenuItem(groupName(id))
+    try check(waitFor(3) { savedLayout().containers[row.id] == "group:" + id }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the card")
 }
 
 test("groups", "dropping a loose chat on a card adds it to that project") {
-    guard let card = board().hit("group:"), let row = looseInSections().first else { throw Failure(message: "need a card and a loose chat") }
+    guard let card = board().hit("group:"), let row = looseOnBoard().first else { throw Failure(message: "need a card and a loose chat") }
+    // An open card's join zone is its middle, over its chats; its name line places the chat beside the card instead.
     try drag(from: center(row.frame), to: center(card.frame))
     let group = "group:" + card.key.dropFirst(6)
     try check(waitFor(3) { savedLayout().containers[row.id] == group }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the card")
 }
 
 test("groups", "dropping a loose chat on another loose chat makes a new group of the two") {
-    let containers = savedLayout().containers
-    let pair = Dictionary(grouping: looseInSections()) { containers[$0.id] ?? "" }.values.first { $0.count >= 2 }
-    guard let pair else { throw Failure(message: "need two loose chats in one section") }
+    let loose = looseOnBoard()
+    guard loose.count >= 2 else { throw Failure(message: "need two loose chats on the board") }
+    let pair = [loose[0], loose[1]]
     try drag(from: center(pair[1].frame), to: center(pair[0].frame))
     try check(waitFor(3) {
         let now = savedLayout().containers
@@ -789,8 +800,11 @@ test("groups", "dropping a loose chat on another loose chat makes a new group of
     }, "the two chats aren't in one new group")
 }
 
-test("groups", "dragging a chat below everything takes it out of every section") {
-    guard let row = looseInSections().last else { throw Failure(message: "no loose chat in a section") }
+test("groups", "dragging a chat out of its card to below everything takes it out of its project") {
+    let containers = savedLayout().containers
+    guard let row = board().rows.first(where: { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("group:") }) else {
+        throw Failure(message: "no chat showing inside a card")
+    }
     try drag(from: center(row.frame), to: blankSpot())
     try check(waitFor(3) { savedLayout().containers[row.id] == "top" }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the top level")
 }
@@ -800,17 +814,12 @@ test("groups", "holding a dragged chat on the banner goes back to all chats, and
     guard let row = board().rows.first(where: { $0.depth == 0 }), let banner = board().hit("home:banner") else {
         throw Failure(message: "need a chat and the banner on the project page")
     }
-    var target = ""
     try dragHolding(from: center(row.frame), hold: center(banner.frame), seconds: 1.2) {
         guard waitFor(2, { board().openGroup.isEmpty }) else { throw Failure(message: "holding on the banner didn't go back to all chats") }
-        let containers = savedLayout().containers
-        guard let anchor = board().rows.first(where: { $0.depth == 0 && (containers[$0.id] ?? "").hasPrefix("section:") }) else {
-            throw Failure(message: "no loose chat in a section to drop beside")
-        }
-        target = containers[anchor.id]!
+        guard let anchor = looseOnBoard().first else { throw Failure(message: "no loose chat on the board to drop beside") }
         return CGPoint(x: anchor.frame.midX, y: anchor.frame.minY + 3)
     }
-    try check(waitFor(3) { savedLayout().containers[row.id] == target }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not \(target)")
+    try check(waitFor(3) { savedLayout().containers[row.id] == "top" }, "\(row.title) is in \(savedLayout().containers[row.id] ?? "nothing"), not the top level")
 }
 
 test("config", "an unreadable config.json hides every chat and says so, and fixing it brings them back") {
