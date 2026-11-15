@@ -73,18 +73,23 @@ public struct BoardLayout: Codable, Equatable, Sendable {
     // Chats and project cards the person set to high or low priority, keyed "chat:<id>" or "group:<id>".
     // Anything missing is medium.
     public var priorities: [String: Priority]
+    // Project cards folded down to their summary on the board, by group id. Cards are open, showing their chats like a
+    // section, unless listed here (Mo, 2026-11-14: open by default).
+    public var folded: Set<String>
 
     public init(top: [Node] = [], sections: [String: TagSection] = [:], groups: [String: ProjectGroup] = [:],
-                manual: Set<String> = [], filedAs: [String: String] = [:], priorities: [String: Priority] = [:]) {
+                manual: Set<String> = [], filedAs: [String: String] = [:], priorities: [String: Priority] = [:],
+                folded: Set<String> = []) {
         self.top = top
         self.sections = sections
         self.groups = groups
         self.manual = manual
         self.filedAs = filedAs
         self.priorities = priorities
+        self.folded = folded
     }
 
-    // A layout.json saved before priorities existed has no "priorities" key.
+    // A layout.json saved before priorities or folded cards existed has no key for them.
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         top = try values.decode([Node].self, forKey: .top)
@@ -93,6 +98,7 @@ public struct BoardLayout: Codable, Equatable, Sendable {
         manual = try values.decode(Set<String>.self, forKey: .manual)
         filedAs = try values.decode([String: String].self, forKey: .filedAs)
         priorities = try values.decodeIfPresent([String: Priority].self, forKey: .priorities) ?? [:]
+        folded = try values.decodeIfPresent(Set<String>.self, forKey: .folded) ?? []
     }
 
     static func priorityKey(_ node: Node) -> String? {

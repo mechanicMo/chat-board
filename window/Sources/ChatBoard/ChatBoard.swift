@@ -258,12 +258,16 @@ struct BoardView: View {
                 ForEach(children) { child in row(child, title: inSection ? untaggedTitle(child) : nil) }
             }
         case .group(let card):
+            let expanded = board.isExpanded(card.id)
             draggable(
                 GroupCardView(card: card, isUnread: board.isUnread(card), holdsCurrent: board.holdsCurrent(card),
-                              scale: board.priority(of: .group(card.id)).scale)
+                              scale: board.priority(of: .group(card.id)).scale, expanded: expanded) {
+                    cardRows(card)
+                }
                     .background(reportHit("group:" + card.id))
                     .contextMenu {
                         Button("Open project") { board.openProject(card.id) }
+                        Button(expanded ? "Fold here" : "Expand here") { board.toggleExpanded(card.id) }
                         Button("Rename group...") { board.renameGroup(card.id) }
                         Button("Ungroup") { board.ungroup(card.id) }
                         MoveToMenu(board: board, node: .group(card.id))
@@ -324,6 +328,12 @@ struct BoardView: View {
     // One project: its chats in the order the person put them, never sorted by status (Mo, 2026-11-14).
     @ViewBuilder
     private func page(_ card: Tree.Card) -> some View {
+        cardRows(card)
+    }
+
+    // A project's chats, on its page or inside its card when expanded on the board.
+    @ViewBuilder
+    private func cardRows(_ card: Tree.Card) -> some View {
         ForEach(card.chats) { chat in
             if chat.depth == 0 {
                 draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id))
@@ -1069,8 +1079,12 @@ func checkClaude() -> Int32 {
 }
 
 @MainActor
-private func snapshot(to path: String, width: Double, height: Double, search: String?, project: String? = nil) {
+private func snapshot(to path: String, width: Double, height: Double, search: String?, project: String? = nil,
+                      expand: String? = nil) {
     let board = BoardModel()
+    if let expand, let card = board.cards.first(where: { $0.name == expand }), !board.isExpanded(card.id) {
+        board.toggleExpanded(card.id)
+    }
     if let search { board.startSearch(); board.query = search }
     if let project, let card = board.cards.first(where: { $0.name == project }) { board.openProject(card.id) }
     let view = NSHostingView(rootView: BoardView(board: board).background(Color(nsColor: .windowBackgroundColor)))
@@ -1105,7 +1119,10 @@ struct ChatBoardApp {
             let height = arguments.firstIndex(of: "--height").flatMap { arguments.indices.contains($0 + 1) ? Double(arguments[$0 + 1]) : nil } ?? 760
             let search = arguments.firstIndex(of: "--search").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
             let project = arguments.firstIndex(of: "--project").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-            MainActor.assumeIsolated { snapshot(to: arguments[flag + 1], width: width, height: height, search: search, project: project) }
+            let expand = arguments.firstIndex(of: "--expand").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+            MainActor.assumeIsolated {
+                snapshot(to: arguments[flag + 1], width: width, height: height, search: search, project: project, expand: expand)
+            }
             return
         }
         let delegate = AppDelegate()

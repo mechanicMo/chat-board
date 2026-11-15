@@ -192,6 +192,10 @@ final class BoardModel: ObservableObject {
 
     func toggleSection(_ id: String) { apply(Moves.toggleCollapsed(layout, section: id)) }
 
+    // A project card opened in place on the board (down arrow), as opposed to its own page (right arrow).
+    func isExpanded(_ id: String) -> Bool { !layout.folded.contains(id) }
+    func toggleExpanded(_ id: String) { apply(Moves.toggleExpanded(layout, group: id)) }
+
     func move(_ node: Node, to container: Container, before: Node?) {
         apply(Moves.move(layout, node, to: container, before: before))
     }
@@ -298,14 +302,17 @@ final class BoardModel: ObservableObject {
     }
 
     // The chat rows on screen, top to bottom: search results, the open project's chats, or the loose chats of the
-    // board (cards show their chats only once opened). Collapsed sections show none.
+    // board (a card shows its chats unless folded). Collapsed sections show none.
     var visibleChats: [Chat] {
         if isSearching { return shown }
         if let card = openCard { return card.chats }
+        let folded = layout.folded
         return tree.flatMap { top -> [Chat] in
             func rows(_ entry: Tree.Entry) -> [Chat] {
-                if case .chat(let chat, let children) = entry { return [chat] + children }
-                return []
+                switch entry {
+                case .chat(let chat, let children): return [chat] + children
+                case .group(let card): return folded.contains(card.id) ? [] : card.chats
+                }
             }
             switch top {
             case .section(let block): return block.collapsed ? [] : block.entries.flatMap(rows)
@@ -362,7 +369,8 @@ final class BoardModel: ObservableObject {
     // Where each chat's row sits in the window, so a click caught by the panel can find its chat.
     var rowsInWindow: [String: CGRect] = [:]
     var controlsInWindow: [String: CGRect] = [:]
-    // Cards ("group:<id>"), section headers ("section:<id>") and the ways home ("home:<n>"), for the same reason.
+    // Cards ("group:<id>"), their down arrows ("expand:<id>"), section headers ("section:<id>") and the ways home
+    // ("home:<n>"), for the same reason.
     var hitsInWindow: [String: CGRect] = [:]
 
     // True when the click landed on a chat and opened it.
@@ -374,8 +382,11 @@ final class BoardModel: ObservableObject {
             open(chat)
             return true
         }
-        guard !isSearching, let hit = hitsInWindow.first(where: { $0.value.contains(point) })?.key else { return false }
-        if hit.hasPrefix("group:") { openProject(String(hit.dropFirst(6))) }
+        // The smallest frame wins: a card's down arrow sits inside the card, and must not open the project.
+        guard !isSearching, let hit = hitsInWindow.filter({ $0.value.contains(point) })
+                .min(by: { $0.value.width * $0.value.height < $1.value.width * $1.value.height })?.key else { return false }
+        if hit.hasPrefix("expand:") { toggleExpanded(String(hit.dropFirst(7))) }
+        else if hit.hasPrefix("group:") { openProject(String(hit.dropFirst(6))) }
         else if hit.hasPrefix("section:") { toggleSection(String(hit.dropFirst(8))) }
         else if hit.hasPrefix("home") { goHome() }
         return false

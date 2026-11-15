@@ -64,6 +64,7 @@ public enum Moves {
         for chat in chats { layout.insert(.chat(chat), into: place, before: .group(group)) }
         layout.remove(.group(group))
         layout.groups[group] = nil
+        layout.folded.remove(group)
         layout.manual.formUnion(chats)
         return layout
     }
@@ -72,6 +73,14 @@ public enum Moves {
         guard start.sections[section] != nil else { return start }
         var layout = start
         layout.sections[section]!.collapsed.toggle()
+        return layout
+    }
+
+    // Folds a project card down to its summary on the board, or opens it back up.
+    public static func toggleExpanded(_ start: BoardLayout, group: String) -> BoardLayout {
+        guard start.groups[group] != nil else { return start }
+        var layout = start
+        if layout.folded.contains(group) { layout.folded.remove(group) } else { layout.folded.insert(group) }
         return layout
     }
 }

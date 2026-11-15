@@ -97,17 +97,30 @@ struct SectionHeader: View {
     }
 }
 
-struct GroupCardView: View {
+// A project card. Two arrows on the right: down opens it in place, showing its chats inside the card like a section;
+// right opens the project's own page. Collapsed, it shows the chat that needs the person most.
+struct GroupCardView<Rows: View>: View {
     let card: Tree.Card
     let isUnread: Bool
     let holdsCurrent: Bool
     // The card's priority: 1 is the normal size, 0.85 low, 1.3 high.
     var scale: Double = 1
+    var expanded: Bool = false
+    @ViewBuilder var rows: () -> Rows
     @State private var isHovered = false
+
+    private func arrow(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 12 * scale, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 22 * scale, height: 20 * scale)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(isHovered ? 0.07 : 0)))
+            .contentShape(Rectangle())
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6 * scale) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(card.name)
                     .font(.system(size: 16 * scale, weight: isUnread ? .bold : .regular))
                     .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62))
@@ -117,11 +130,20 @@ struct GroupCardView: View {
                 Text(card.chats.count == 1 ? "1 task" : "\(card.chats.count) tasks")
                     .font(.system(size: 12 * scale))
                     .foregroundStyle(.secondary)
-                Image(systemName: "chevron.right").font(.system(size: 11 * scale, weight: .semibold)).foregroundStyle(.tertiary)
+                HStack(spacing: 2) {
+                    arrow(expanded ? "chevron.up" : "chevron.down")
+                        .help(expanded ? "Fold this project back" : "Show this project's chats here")
+                        .background(reportHit("expand:" + card.id))
+                    arrow("chevron.right")
+                        .help("Open this project on its own")
+                }
             }
             // Read cards dim like a read chat row, so a bright card always means something new inside.
             StatusBar(counts: card.counts).opacity(isUnread ? 1 : 0.4)
-            if let lead = card.lead {
+            if expanded {
+                // Rows sit a little wider than the header so their status stripes line up under the card's edge.
+                VStack(spacing: 2) { rows() }.padding(.horizontal, -4)
+            } else if let lead = card.lead {
                 HStack(alignment: .top, spacing: 6) {
                     Circle().fill(lead.kind.color.opacity(isUnread ? 1 : 0.4)).frame(width: 7 * scale, height: 7 * scale).padding(.top, 5 * scale)
                     VStack(alignment: .leading, spacing: 1) {
@@ -139,7 +161,7 @@ struct GroupCardView: View {
         .padding(.vertical, 8 * scale)
         .background(
             RoundedRectangle(cornerRadius: 9)
-                .fill(Color.primary.opacity(isHovered ? 0.09 : 0.05))
+                .fill(Color.primary.opacity(isHovered && !expanded ? 0.09 : 0.05))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9)
