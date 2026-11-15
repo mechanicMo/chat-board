@@ -369,7 +369,7 @@ final class BoardModel: ObservableObject {
     // Where each chat's row sits in the window, so a click caught by the panel can find its chat.
     var rowsInWindow: [String: CGRect] = [:]
     var controlsInWindow: [String: CGRect] = [:]
-    // Cards ("group:<id>"), their down arrows ("expand:<id>"), section headers ("section:<id>") and the ways home
+    // Cards ("group:<id>"), their right arrows ("open:<id>"), section headers ("section:<id>") and the ways home
     // ("home:<n>"), for the same reason.
     var hitsInWindow: [String: CGRect] = [:]
 
@@ -382,11 +382,12 @@ final class BoardModel: ObservableObject {
             open(chat)
             return true
         }
-        // The smallest frame wins: a card's down arrow sits inside the card, and must not open the project.
+        // The smallest frame wins: a card's right arrow sits inside the card. The arrow opens the project's page; a click
+        // anywhere else on the card folds or opens it in place (Mo, 2026-11-14).
         guard !isSearching, let hit = hitsInWindow.filter({ $0.value.contains(point) })
                 .min(by: { $0.value.width * $0.value.height < $1.value.width * $1.value.height })?.key else { return false }
-        if hit.hasPrefix("expand:") { toggleExpanded(String(hit.dropFirst(7))) }
-        else if hit.hasPrefix("group:") { openProject(String(hit.dropFirst(6))) }
+        if hit.hasPrefix("open:") { openProject(String(hit.dropFirst(5))) }
+        else if hit.hasPrefix("group:") { toggleExpanded(String(hit.dropFirst(6))) }
         else if hit.hasPrefix("section:") { toggleSection(String(hit.dropFirst(8))) }
         else if hit.hasPrefix("home") { goHome() }
         return false

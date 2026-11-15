@@ -83,7 +83,7 @@ struct BoardState {
     func control(_ name: String) -> CGRect? {
         (raw["controls"] as? [String: Any])?[name].map(rect)
     }
-    // Cards ("group:<id>"), section headers ("section:<id>") and the ways home ("home:<name>").
+    // Cards ("group:<id>"), their right arrows ("open:<id>"), section headers ("section:<id>") and the ways home ("home:<name>").
     var hits: [String: CGRect] { ((raw["hits"] as? [String: Any]) ?? [:]).mapValues(rect) }
     func hit(_ prefix: String) -> (key: String, frame: CGRect)? {
         hits.filter { $0.key.hasPrefix(prefix) && !$0.value.isNull }.sorted { $0.value.minY < $1.value.minY }.first.map { ($0.key, $0.value) }
@@ -148,6 +148,13 @@ func savedLayout() -> (order: [String], containers: [String: String]) {
 }
 
 func savedOrder() -> [String] { savedLayout().order }
+
+// Project cards the person folded on the board (layout.json "folded").
+func savedFolded() -> Set<String> {
+    guard let data = FileManager.default.contents(atPath: shareDir + "/layout.json"),
+          let layout = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+    return Set(layout["folded"] as? [String] ?? [])
+}
 
 // MARK: Apps and windows
 
@@ -690,14 +697,28 @@ func pressMenuItem(_ title: String) throws {
 // Sections and project groups
 
 func openFirstCard() throws -> String {
-    guard let card = board().hit("group:") else { throw Failure(message: "no project card on the board") }
-    try click(center(card.frame))
-    let id = String(card.key.dropFirst(6))
-    try check(waitFor(3) { board().openGroup == id }, "clicking the card didn't open its project")
+    guard let arrow = board().hit("open:") else { throw Failure(message: "no project card with a right arrow on the board") }
+    try click(center(arrow.frame))
+    let id = String(arrow.key.dropFirst(5))
+    try check(waitFor(3) { board().openGroup == id }, "clicking the right arrow didn't open its project")
     return id
 }
 
-test("groups", "clicking a card opens its project, and the banner goes back") {
+// A click on the card itself (its name, away from the chats inside) folds it in place and never opens the page.
+test("groups", "clicking a card folds it and opens it again, without leaving the board") {
+    guard let card = board().hit("group:") else { throw Failure(message: "no project card on the board") }
+    let id = String(card.key.dropFirst(6))
+    let wasFolded = savedFolded().contains(id)
+    let onName = CGPoint(x: card.frame.minX + 50, y: card.frame.minY + 14)
+    try click(onName)
+    try check(waitFor(3) { savedFolded().contains(id) != wasFolded }, "clicking the card didn't fold or open it")
+    try check(board().openGroup.isEmpty, "clicking the card opened its project page")
+    guard let again = board().hit("group:" + id) else { throw Failure(message: "the card left the board") }
+    try click(CGPoint(x: again.frame.minX + 50, y: again.frame.minY + 14))
+    try check(waitFor(3) { savedFolded().contains(id) == wasFolded }, "a second click didn't put the card back")
+}
+
+test("groups", "the right arrow opens its project, and the banner goes back") {
     let before = board().rows.count
     _ = try openFirstCard()
     try check(board().rows.count != before, "the rows didn't change when the project opened")

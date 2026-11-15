@@ -97,8 +97,9 @@ struct SectionHeader: View {
     }
 }
 
-// A project card. Two arrows on the right: down opens it in place, showing its chats inside the card like a section;
-// right opens the project's own page. Collapsed, it shows the chat that needs the person most.
+// A project card. A click anywhere on it folds or opens it in place (the up/down arrow left of the name shows which),
+// showing its chats inside the card like a section; only the right arrow opens the project's own page (Mo, 2026-11-14).
+// Folded, it shows the chat that needs the person most.
 struct GroupCardView<Rows: View>: View {
     let card: Tree.Card
     let isUnread: Bool
@@ -121,6 +122,9 @@ struct GroupCardView<Rows: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6 * scale) {
             HStack(alignment: .center, spacing: 6) {
+                arrow(expanded ? "chevron.up" : "chevron.down")
+                    .help(expanded ? "Fold this project back" : "Show this project's chats here")
+                    .padding(.leading, -4)
                 Text(card.name)
                     .font(.system(size: 16 * scale, weight: isUnread ? .bold : .regular))
                     .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62))
@@ -130,13 +134,9 @@ struct GroupCardView<Rows: View>: View {
                 Text(card.chats.count == 1 ? "1 task" : "\(card.chats.count) tasks")
                     .font(.system(size: 12 * scale))
                     .foregroundStyle(.secondary)
-                HStack(spacing: 2) {
-                    arrow(expanded ? "chevron.up" : "chevron.down")
-                        .help(expanded ? "Fold this project back" : "Show this project's chats here")
-                        .background(reportHit("expand:" + card.id))
-                    arrow("chevron.right")
-                        .help("Open this project on its own")
-                }
+                arrow("chevron.right")
+                    .help("Open this project on its own")
+                    .background(reportHit("open:" + card.id))
             }
             // Read cards dim like a read chat row, so a bright card always means something new inside.
             StatusBar(counts: card.counts).opacity(isUnread ? 1 : 0.4)
