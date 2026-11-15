@@ -20,40 +20,42 @@ struct ChatRow: View {
     var isSelected = false
     // Shown instead of the full title, e.g. just the task inside a project.
     var displayTitle: String? = nil
+    // The chat's priority: 1 is the normal size, 0.85 low, 1.3 high. Every font and gap scales with it.
+    var scale: Double = 1
     @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
+        HStack(alignment: .top, spacing: 7 * scale) {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(isCurrent ? Color.white.opacity(0.9) : chat.kind.color.opacity(isUnread ? 1 : 0.4))
-                .frame(width: 3)
+                .frame(width: 3 * max(scale, 0.67))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline) {
                     // Up to two lines, so a narrow window still shows enough of the title to recognize it.
                     Text(displayTitle ?? chat.title)
-                        .font(.system(size: 16, weight: isUnread || isCurrent ? .bold : .regular))
+                        .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))
                         .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(isUnread ? 1 : 0.62))
-                        .lineLimit(2)
+                        .lineLimit(scale < 1 ? 1 : 2)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if isUnread {
-                        Circle().fill(chat.kind.color).frame(width: 8, height: 8)
+                        Circle().fill(chat.kind.color).frame(width: 8 * scale, height: 8 * scale)
                     }
                     Text(age(chat.activeAt))
-                        .font(.system(size: 13).monospacedDigit())
+                        .font(.system(size: 13 * scale).monospacedDigit())
                         .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : .secondary)
                 }
                 if !chat.line.isEmpty {
                     Text(chat.line)
-                        .font(.system(size: 14))
+                        .font(.system(size: 14 * scale))
                         .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : Color.primary.opacity(isUnread ? 0.75 : 0.42))
-                        .lineLimit(2)
+                        .lineLimit(scale < 1 ? 1 : 2)
                         .truncationMode(.tail)
                 }
             }
         }
         .foregroundStyle(isCurrent ? Color.white : Color.primary)
-        .padding(.vertical, 6)
+        .padding(.vertical, 6 * scale)
         .padding(.horizontal, 7)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -66,6 +68,24 @@ struct ChatRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(chat.line)
+    }
+}
+
+// Right-click > Priority: High draws the item 30% bigger, Low at 85%, one line for the title and one for the summary. The current one is ticked.
+struct PriorityMenu: View {
+    @ObservedObject var board: BoardModel
+    let node: Node
+
+    var body: some View {
+        Menu("Priority") {
+            ForEach(Priority.allCases, id: \.self) { level in
+                Button {
+                    board.setPriority(node, to: level)
+                } label: {
+                    if board.priority(of: node) == level { Label(level.label, systemImage: "checkmark") } else { Text(level.label) }
+                }
+            }
+        }
     }
 }
 
@@ -211,7 +231,8 @@ struct BoardView: View {
     }
 
     private func row(_ chat: Chat, title: String? = nil) -> some View {
-        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat), displayTitle: title)
+        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat), displayTitle: title,
+                scale: board.priority(of: .chat(chat.id)).scale)
             .padding(.leading, chat.depth > 0 ? 18 : 0)
             .background(GeometryReader { geometry in
                 Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
@@ -220,6 +241,7 @@ struct BoardView: View {
             .contextMenu {
                 Button("Open") { board.open(chat) }
                 if chat.depth == 0 { MoveToMenu(board: board, node: .chat(chat.id)) }
+                PriorityMenu(board: board, node: .chat(chat.id))
                 Divider()
                 Button("Archive") { board.archive(chat) }
             }
@@ -236,13 +258,15 @@ struct BoardView: View {
             }
         case .group(let card):
             draggable(
-                GroupCardView(card: card, isUnread: board.isUnread(card), holdsCurrent: board.holdsCurrent(card))
+                GroupCardView(card: card, isUnread: board.isUnread(card), holdsCurrent: board.holdsCurrent(card),
+                              scale: board.priority(of: .group(card.id)).scale)
                     .background(reportHit("group:" + card.id))
                     .contextMenu {
                         Button("Open project") { board.openProject(card.id) }
                         Button("Rename group...") { board.renameGroup(card.id) }
                         Button("Ungroup") { board.ungroup(card.id) }
                         MoveToMenu(board: board, node: .group(card.id))
+                        PriorityMenu(board: board, node: .group(card.id))
                     }
                     .padding(.vertical, 2),
                 .group(card.id), in: container)
@@ -327,7 +351,7 @@ struct BoardView: View {
         }
         ForEach(Array(shown.enumerated()), id: \.element.id) { index, chat in
             ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
-                    isSelected: index == board.selected)
+                    isSelected: index == board.selected, scale: board.priority(of: .chat(chat.id)).scale)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
                 })

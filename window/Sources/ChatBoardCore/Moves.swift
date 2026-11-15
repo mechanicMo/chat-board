@@ -3,6 +3,14 @@ import Foundation
 // What the person does to the layout by dragging or through a right-click menu. Anything they place by hand is
 // marked so auto-filing leaves it alone afterwards. A move that isn't allowed returns the layout unchanged.
 public enum Moves {
+    // Sets how big a chat or project card is drawn. Medium is stored as nothing, so the file only lists exceptions.
+    public static func setPriority(_ start: BoardLayout, _ node: Node, to priority: Priority) -> BoardLayout {
+        guard let key = BoardLayout.priorityKey(node) else { return start }
+        var layout = start
+        layout.priorities[key] = priority == .medium ? nil : priority
+        return layout
+    }
+
     public static func move(_ start: BoardLayout, _ node: Node, to destination: Container, before: Node?) -> BoardLayout {
         var layout = start
         switch (node, destination) {

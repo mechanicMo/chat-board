@@ -8,6 +8,27 @@ public enum Node: Hashable, Codable, Sendable {
     case section(String), group(String), chat(String)
 }
 
+// How big a chat or project card is drawn. Medium is today's size; low is 85% of it, high 30% bigger.
+public enum Priority: String, Codable, CaseIterable, Sendable {
+    case high, medium, low
+
+    public var scale: Double {
+        switch self {
+        case .high: 1.3
+        case .medium: 1
+        case .low: 0.85
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .high: "High"
+        case .medium: "Medium"
+        case .low: "Low"
+        }
+    }
+}
+
 public enum Container: Hashable, Sendable {
     case top, section(String), group(String)
 }
@@ -49,14 +70,41 @@ public struct BoardLayout: Codable, Equatable, Sendable {
     public var manual: Set<String>
     // The title each chat was last auto-filed under, so a rename can re-file it.
     public var filedAs: [String: String]
+    // Chats and project cards the person set to high or low priority, keyed "chat:<id>" or "group:<id>".
+    // Anything missing is medium.
+    public var priorities: [String: Priority]
 
     public init(top: [Node] = [], sections: [String: TagSection] = [:], groups: [String: ProjectGroup] = [:],
-                manual: Set<String> = [], filedAs: [String: String] = [:]) {
+                manual: Set<String> = [], filedAs: [String: String] = [:], priorities: [String: Priority] = [:]) {
         self.top = top
         self.sections = sections
         self.groups = groups
         self.manual = manual
         self.filedAs = filedAs
+        self.priorities = priorities
+    }
+
+    // A layout.json saved before priorities existed has no "priorities" key.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        top = try values.decode([Node].self, forKey: .top)
+        sections = try values.decode([String: TagSection].self, forKey: .sections)
+        groups = try values.decode([String: ProjectGroup].self, forKey: .groups)
+        manual = try values.decode(Set<String>.self, forKey: .manual)
+        filedAs = try values.decode([String: String].self, forKey: .filedAs)
+        priorities = try values.decodeIfPresent([String: Priority].self, forKey: .priorities) ?? [:]
+    }
+
+    static func priorityKey(_ node: Node) -> String? {
+        switch node {
+        case .chat(let id): "chat:" + id
+        case .group(let id): "group:" + id
+        case .section: nil
+        }
+    }
+
+    public func priority(of node: Node) -> Priority {
+        Self.priorityKey(node).flatMap { priorities[$0] } ?? .medium
     }
 
     public func items(in container: Container) -> [Node] {

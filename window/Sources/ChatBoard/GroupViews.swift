@@ -101,32 +101,34 @@ struct GroupCardView: View {
     let card: Tree.Card
     let isUnread: Bool
     let holdsCurrent: Bool
+    // The card's priority: 1 is the normal size, 0.85 low, 1.3 high.
+    var scale: Double = 1
     @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6 * scale) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(card.name)
-                    .font(.system(size: 16, weight: isUnread ? .bold : .regular))
+                    .font(.system(size: 16 * scale, weight: isUnread ? .bold : .regular))
                     .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                if isUnread, let lead = card.lead { Circle().fill(lead.kind.color).frame(width: 8, height: 8) }
+                if isUnread, let lead = card.lead { Circle().fill(lead.kind.color).frame(width: 8 * scale, height: 8 * scale) }
                 Text(card.chats.count == 1 ? "1 task" : "\(card.chats.count) tasks")
-                    .font(.system(size: 12))
+                    .font(.system(size: 12 * scale))
                     .foregroundStyle(.secondary)
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").font(.system(size: 11 * scale, weight: .semibold)).foregroundStyle(.tertiary)
             }
             // Read cards dim like a read chat row, so a bright card always means something new inside.
             StatusBar(counts: card.counts).opacity(isUnread ? 1 : 0.4)
             if let lead = card.lead {
                 HStack(alignment: .top, spacing: 6) {
-                    Circle().fill(lead.kind.color.opacity(isUnread ? 1 : 0.4)).frame(width: 7, height: 7).padding(.top, 5)
+                    Circle().fill(lead.kind.color.opacity(isUnread ? 1 : 0.4)).frame(width: 7 * scale, height: 7 * scale).padding(.top, 5 * scale)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(taskTitle(lead)).font(.system(size: 14))
+                        Text(taskTitle(lead)).font(.system(size: 14 * scale))
                             .foregroundStyle(Color.primary.opacity(isUnread ? 1 : 0.62)).lineLimit(1)
                         if !lead.line.isEmpty {
-                            Text(lead.line).font(.system(size: 13))
+                            Text(lead.line).font(.system(size: 13 * scale))
                                 .foregroundStyle(Color.primary.opacity(isUnread ? 0.75 : 0.42)).lineLimit(1)
                         }
                     }
@@ -134,7 +136,7 @@ struct GroupCardView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 8 * scale)
         .background(
             RoundedRectangle(cornerRadius: 9)
                 .fill(Color.primary.opacity(isHovered ? 0.09 : 0.05))

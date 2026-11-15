@@ -187,6 +187,9 @@ final class BoardModel: ObservableObject {
 
     func goHome() { openGroupId = nil }
 
+    func priority(of node: Node) -> Priority { layout.priority(of: node) }
+    func setPriority(_ node: Node, to level: Priority) { apply(Moves.setPriority(layout, node, to: level)) }
+
     func toggleSection(_ id: String) { apply(Moves.toggleCollapsed(layout, section: id)) }
 
     func move(_ node: Node, to container: Container, before: Node?) {
