@@ -47,15 +47,10 @@ private func chat(_ id: String, _ kind: Kind = .yourMove, parent: String? = nil)
         #expect(card?.lead == nil)
     }
 
-    @Test func theProjectPageGroupsByStatusAndKeepsTheOrder() throws {
-        let tree = Tree.build(Self.layout, chats: Self.chats + [chat("d", .yourMove)])
-        _ = tree
+    @Test func theProjectPageKeepsThePersonsOrderWhateverTheStatus() throws {
         let card = try #require(Tree.card(ProjectGroup(id: "g", name: "x", chats: ["a", "d", "b", "c"]),
                                           chats: Dictionary(uniqueKeysWithValues: (Self.chats + [chat("d", .yourMove)]).map { ($0.id, $0) }),
                                           children: ["local_a": [chat("kid", .working, parent: "a")]]))
-        let page = Tree.page(card)
-        #expect(page.map(\.title) == ["Needs you", "Ready to close", "Working"])
-        #expect(page[0].chats.map(\.id) == ["d", "b"])
-        #expect(page[2].chats.map(\.id) == ["a", "kid"])
+        #expect(card.chats.map(\.id) == ["a", "kid", "d", "b", "c"])
     }
 }

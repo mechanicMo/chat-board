@@ -321,26 +321,17 @@ struct BoardView: View {
         func body(content: Content) -> some View { view.draggable(content, node, in: .top) }
     }
 
-    // One project: its chats under Needs you, Ready to close and Working, reordered within each by dragging.
+    // One project: its chats in the order the person put them, never sorted by status (Mo, 2026-11-14).
     @ViewBuilder
     private func page(_ card: Tree.Card) -> some View {
-        let sections = Tree.page(card)
-        ForEach(sections, id: \.title) { section in
-            Text(section.title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 6)
-                .padding(.top, 8)
-            ForEach(section.chats) { chat in
-                if chat.depth == 0 {
-                    draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id))
-                } else {
-                    row(chat, title: taskTitle(chat))
-                }
+        ForEach(card.chats) { chat in
+            if chat.depth == 0 {
+                draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id))
+            } else {
+                row(chat, title: taskTitle(chat))
             }
         }
+        .padding(.top, 4)
     }
 
     // While searching, every matching chat in one flat list, as before groups existed.

@@ -50,7 +50,6 @@ final class BoardModel: ObservableObject {
 
     private var recordCache: [String: (mtime: Double, record: [String: Any])] = [:]
     private var rowCache: [String: (mtime: Double, row: [String: Any])] = [:]
-    private var pendingArchive: [String: String] = [:]  // localId -> title
     private var pendingDetach: [String: String] = [:]   // localId -> title
     private var timer: Timer?
     private var configWasUnreadable = false
@@ -116,7 +115,6 @@ final class BoardModel: ObservableObject {
         if let settled = Board.settledOrder(next, saved: saved) { writeOrder(settled) }
         if next != chats { chats = next }
         refreshLayout(list)
-        settleArchives()
         settleDetaches()
     }
 
@@ -303,7 +301,7 @@ final class BoardModel: ObservableObject {
     // board (cards show their chats only once opened). Collapsed sections show none.
     var visibleChats: [Chat] {
         if isSearching { return shown }
-        if let card = openCard { return Tree.page(card).flatMap(\.chats) }
+        if let card = openCard { return card.chats }
         return tree.flatMap { top -> [Chat] in
             func rows(_ entry: Tree.Entry) -> [Chat] {
                 if case .chat(let chat, let children) = entry { return [chat] + children }
@@ -450,15 +448,30 @@ final class BoardModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    // Archives through Claude's own window (see ClaudeArchive.swift). A plugin can't archive from a chat in auto mode.
+    private var archiving: ClaudeArchive?
+
     func archive(_ chat: Chat) {
-        let dir = shareDir + "/requests"
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let request = ArchiveRequest(localId: chat.localId, title: chat.title)
-        if let data = request.data() {
-            FileManager.default.createFile(atPath: "\(dir)/\(request.fileName)", contents: data)
-        }
-        pendingArchive[chat.localId] = chat.title
+        guard archiving == nil else { notice.text = "Still archiving the last one..."; return }
         notice.text = "Archiving \(chat.title)..."
+        let job = ClaudeArchive(title: chat.title, openChat: { [weak self] in self?.open(chat) }) { [weak self] message in
+            self?.notice.text = message
+            self?.archiving = nil
+            // The click is only a claim until the chat leaves the list. The list refreshes every few seconds and
+            // Claude can take a moment to save, so this keeps looking for 15 seconds and only speaks up if it never goes.
+            guard message.hasPrefix("Archived") else { return }
+            self?.confirmGone(chat, checks: 15)
+        }
+        archiving = job
+        job.start()
+    }
+
+    private func confirmGone(_ chat: Chat, checks: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.chats.contains(where: { $0.id == chat.id }) else { return }
+            if checks > 1 { return self.confirmGone(chat, checks: checks - 1) }
+            self.notice.text = "Claude didn't archive \(chat.title). Try it from Claude's sidebar."
+        }
     }
 
     func detach(_ chat: Chat) {
@@ -486,28 +499,6 @@ final class BoardModel: ObservableObject {
                 notice.text = "Couldn't move \(title): open it, or the chat that started it, and try again."
                 pendingDetach[localId] = nil
                 clear()
-            }
-        }
-    }
-
-    private func clearRequest(_ localId: String) {
-        for name in ArchiveRequest.fileNames(localId) {
-            try? FileManager.default.removeItem(atPath: "\(shareDir)/requests/\(name)")
-        }
-    }
-
-    // Reads back what the chat that took the request said, or notices nobody has picked it up.
-    private func settleArchives() {
-        for (localId, title) in pendingArchive {
-            if let result = json("\(shareDir)/requests/\(ArchiveRequest.resultFileName(localId))") {
-                notice.text = result["text"] as? String ?? "Archived \(title)."
-                pendingArchive[localId] = nil
-                clearRequest(localId)
-            } else if let request = json("\(shareDir)/requests/archive-\(localId).json"),
-                      Date().timeIntervalSince1970 * 1000 - number(request["at"]) > 20000 {
-                notice.text = "No open chat picked up the archive for \(title). Open any chat and try again."
-                pendingArchive[localId] = nil
-                clearRequest(localId)
             }
         }
     }

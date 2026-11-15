@@ -29,11 +29,6 @@ public enum Tree {
         public let counts: [Kind: Int]
     }
 
-    public struct PageSection: Equatable, Sendable {
-        public let title: String
-        public let chats: [Chat]
-    }
-
     // Most urgent first: a question, then the person's move, then ready to close, then working.
     static let urgency: [Kind] = [.question, .yourMove, .ready, .working]
 
@@ -100,20 +95,6 @@ public enum Tree {
                                              entries: entries, counts: counts(all)))
             }
             return entry(node).map(TopEntry.entry)
-        }
-    }
-
-    // The project page: the card's chats under Needs you, Ready to close and Working, each in the group's order.
-    // A side session stays right under its parent.
-    public static func page(_ card: Card) -> [PageSection] {
-        var blocks: [[Chat]] = []
-        for chat in card.chats {
-            if chat.depth > 0, !blocks.isEmpty { blocks[blocks.count - 1].append(chat) } else { blocks.append([chat]) }
-        }
-        let headers: [(String, Set<Kind>)] = [("Needs you", [.question, .yourMove]), ("Ready to close", [.ready]), ("Working", [.working])]
-        return headers.compactMap { title, kinds in
-            let chats = blocks.filter { kinds.contains($0[0].kind) }.flatMap { $0 }
-            return chats.isEmpty ? nil : PageSection(title: title, chats: chats)
         }
     }
 }
