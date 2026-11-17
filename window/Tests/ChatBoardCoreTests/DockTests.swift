@@ -84,7 +84,7 @@ import Testing
         #expect(notice.text == nil)
     }
 
-    @MainActor @Test func defaultsToTenSeconds() {
-        #expect(Notice().delay == 10)
+    @MainActor @Test func defaultsToFiveSeconds() {
+        #expect(Notice().delay == 5)
     }
 }

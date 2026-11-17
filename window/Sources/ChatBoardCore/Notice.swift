@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-// A message at the top of the board. It closes itself after `delay` seconds, unless a newer one replaced it.
+// A message floating over the bottom of the board. It closes itself after `delay` seconds, unless a newer one replaced it.
 @MainActor
 public final class Notice: ObservableObject {
     @Published public var text: String? {
@@ -15,5 +15,5 @@ public final class Notice: ObservableObject {
 
     public let delay: TimeInterval
 
-    public init(delay: TimeInterval = 10) { self.delay = delay }
+    public init(delay: TimeInterval = 5) { self.delay = delay }
 }

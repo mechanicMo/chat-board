@@ -155,7 +155,8 @@ struct WindowFrames: PreferenceKey {
     }
 }
 
-// Watches the notice on its own, so the X and the 10-second auto-clear redraw just this bar.
+// Watches the notice on its own, so the X and the 5-second auto-clear redraw just this bar.
+// It floats over the bottom of the board, so showing or clearing it never moves the list.
 struct NoticeBar: View {
     @ObservedObject var notice: Notice
 
@@ -177,8 +178,12 @@ struct NoticeBar: View {
                 .buttonStyle(.plain)
                 .help("Dismiss")
             }
-            .padding(6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.07)))
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(.regularMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12)))
+            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+            .padding(10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }
@@ -401,7 +406,6 @@ struct BoardView: View {
                 boardHeader
             }
             if board.isSearching { SearchField(board: board) }
-            NoticeBar(notice: board.notice)
             // A plain stack rather than a List: a List drops the first click in a window that isn't focused,
             // and the panel is never focused (Claude stays in front). Click and drag are handled here instead.
             ScrollViewReader { scroller in
@@ -430,6 +434,8 @@ struct BoardView: View {
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
         // While dragging: where it will land, and the dragged thing under the pointer.
         .overlay(alignment: .topLeading) { DragOverlay(board: board) }
+        // Notices float over the bottom of the board instead of pushing the list down.
+        .overlay(alignment: .bottom) { NoticeBar(notice: board.notice).animation(.easeOut(duration: 0.2), value: board.notice.text) }
         // The whole board is framed while a project is open, so it never passes for the full list.
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -1101,8 +1107,9 @@ func checkClaude() -> Int32 {
 
 @MainActor
 private func snapshot(to path: String, width: Double, height: Double, search: String?, project: String? = nil,
-                      expand: String? = nil) {
+                      expand: String? = nil, notice: String? = nil) {
     let board = BoardModel()
+    if let notice { board.notice.text = notice }
     if let expand, let card = board.cards.first(where: { $0.name == expand }), !board.isExpanded(card.id) {
         board.toggleExpanded(card.id)
     }
@@ -1141,8 +1148,10 @@ struct ChatBoardApp {
             let search = arguments.firstIndex(of: "--search").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
             let project = arguments.firstIndex(of: "--project").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
             let expand = arguments.firstIndex(of: "--expand").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+            let notice = arguments.firstIndex(of: "--notice").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
             MainActor.assumeIsolated {
-                snapshot(to: arguments[flag + 1], width: width, height: height, search: search, project: project, expand: expand)
+                snapshot(to: arguments[flag + 1], width: width, height: height, search: search, project: project, expand: expand,
+                         notice: notice)
             }
             return
         }
