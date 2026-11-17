@@ -4,6 +4,8 @@
 // object per line, and the tests read that file to see where keystrokes and clicks landed.
 //   STANDIN_LOG=<file>   where to write (required)
 //   STANDIN_NO_MIC=1     leave the microphone button out, to test that Cmd+D then passes through
+//   STANDIN_CHATS=<json> chat titles (a JSON array) that get a "More options for <title>" button with an Archive
+//                        item, the way Claude's sidebar rows do; pressing Archive logs "archive" with the title
 
 import AppKit
 
@@ -57,6 +59,13 @@ final class StandIn: NSObject, NSApplicationDelegate {
             mic.setAccessibilityLabel("Start dictation")
             content.addSubview(mic)
         }
+        let chats = ProcessInfo.processInfo.environment["STANDIN_CHATS"]
+            .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String] } ?? []
+        for (index, title) in chats.enumerated() {
+            let button = OptionsButton(chat: title, menuHost: content)
+            button.frame = NSRect(x: 130 + index * 40, y: 15, width: 32, height: 32)
+            content.addSubview(button)
+        }
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(box)
@@ -77,6 +86,48 @@ final class StandIn: NSObject, NSApplicationDelegate {
 
     @objc func find() { log("find") }
     @objc func microphone() { log("mic") }
+}
+
+// Claude's per-chat "More options" button. Claude's menu is part of its page, not a native menu, so this one is a
+// plain view too: pressing the button shows an Archive item beside it, and pressing that logs the archive.
+final class OptionsButton: NSButton {
+    let chat: String
+    weak var menuHost: NSView?
+    var item: MenuItemButton?
+
+    init(chat: String, menuHost: NSView) {
+        self.chat = chat
+        self.menuHost = menuHost
+        super.init(frame: .zero)
+        title = "…"
+        target = self
+        action = #selector(showMenu)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
+    override func accessibilityTitle() -> String? { "More options for " + chat }
+
+    @objc func showMenu() {
+        guard item == nil, let menuHost else { return }
+        let archive = MenuItemButton(title: "Archive", target: nil, action: nil)
+        archive.target = self
+        archive.action = #selector(pickArchive)
+        archive.frame = NSRect(x: frame.minX, y: frame.maxY + 4, width: 90, height: 28)
+        menuHost.addSubview(archive)
+        item = archive
+        log("menu", chat)
+    }
+
+    @objc func pickArchive() {
+        item?.removeFromSuperview()
+        item = nil
+        log("archive", chat)
+    }
+}
+
+final class MenuItemButton: NSButton {
+    override func accessibilityRole() -> NSAccessibility.Role? { .menuItem }
 }
 
 let app = NSApplication.shared

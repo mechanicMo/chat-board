@@ -187,10 +187,13 @@ func quit(_ id: String) {
     }
 }
 
-func startStandIn(mic: Bool = true) throws {
+func startStandIn(mic: Bool = true, chats: [String] = []) throws {
     quit(standInId)
     var environment = ["STANDIN_LOG": standInLog]
     if !mic { environment["STANDIN_NO_MIC"] = "1" }
+    if !chats.isEmpty, let data = try? JSONSerialization.data(withJSONObject: chats) {
+        environment["STANDIN_CHATS"] = String(decoding: data, as: UTF8.self)
+    }
     let mark = standInMark()
     try launch(standInApp, environment: environment)
     guard waitFor(10, { standInSince(mark).contains { $0.event == "ready" } }) else {
@@ -653,26 +656,28 @@ test("order", "dragging a chat down moves it, and the order survives a restart")
 
 // Archive and notices
 
-test("archive", "Archive from the right-click menu leaves a request and shows the answer") {
+// Archiving goes through Claude's own window: its "More options for <title>" button, then Archive in that menu.
+test("archive", "Archive from the right-click menu presses Archive in Claude's menu for that chat and says so") {
     let row = board().rows.first { $0.depth == 0 }!
-    try rightClick(center(row.frame))
+    try startStandIn(chats: [row.title])
+    defer { try? startStandIn() }
+    try focusStandIn()
+    let logged = standInEvents().count
+    try rightClick(center(board().rows.first { $0.id == row.id }!.frame))
     try pressMenuItem("Archive")
-    let request = "\(shareDir)/requests/archive-\(row.localId).json"
-    try check(waitFor(2) { FileManager.default.fileExists(atPath: request) }, "no request file was written")
-    try check((json(request)?["token"] as? String)?.isEmpty == false, "the request has no one-time code")
-    try check(board().notice.hasPrefix("Archiving"), "the notice says \"\(board().notice)\"")
-    let answer = "Archived \(row.title) (test)."
-    try JSONSerialization.data(withJSONObject: ["text": answer])
-        .write(to: URL(fileURLWithPath: "\(shareDir)/requests/archive-\(row.localId).result.json"))
-    try check(waitFor(5) { board().notice == answer }, "the notice says \"\(board().notice)\" instead of the answer")
-    try check(!FileManager.default.fileExists(atPath: request), "the answered request was left behind")
+    try check(waitFor(8) { standInEvents().dropFirst(logged).contains { $0.event == "archive" && $0.value == row.title } },
+              "the stand-in's Archive item was never pressed for \(row.title)")
+    try check(waitFor(3) { board().notice == "Archived \(row.title)." }, "the notice says \"\(board().notice)\"")
 }
 
-test("archive", "an archive nobody picks up says so after 20 seconds") {
+test("archive", "a chat Claude doesn't show is not archived, and the board says so") {
     let row = board().rows.filter { $0.depth == 0 }[1]
+    let logged = standInEvents().count
     try rightClick(center(row.frame))
     try pressMenuItem("Archive")
-    try check(waitFor(26) { board().notice.hasPrefix("No open chat picked up") }, "after 26 s the notice says \"\(board().notice)\"")
+    try check(waitFor(12) { board().notice == "Couldn't archive \(row.title): Claude doesn't show that chat." },
+              "after 12 s the notice says \"\(board().notice)\"")
+    try check(!standInEvents().dropFirst(logged).contains { $0.event == "archive" }, "something was archived anyway")
 }
 
 // How many menu windows the board has on screen, read from the window server rather than accessibility, so a
