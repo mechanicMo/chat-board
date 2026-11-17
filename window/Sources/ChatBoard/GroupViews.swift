@@ -309,8 +309,21 @@ struct DragOverlay: View {
         }
     }
 
+    // The slots and the pointer are in window space, measured from the window's top-left. This overlay sits on the
+    // board content, which starts below the title bar (the window has a full-size content view), so every rect is
+    // shifted by the overlay's own window-space origin before drawing. Without this the line and outline land one
+    // title bar too low.
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        GeometryReader { geometry in
+            content(origin: geometry.frame(in: .global).origin)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func content(origin: CGPoint) -> some View {
+        let line = line?.offsetBy(dx: -origin.x, dy: -origin.y)
+        let outline = outline?.offsetBy(dx: -origin.x, dy: -origin.y)
+        return ZStack(alignment: .topLeading) {
             if let line {
                 Capsule().fill(Color.accentColor).frame(width: line.width, height: line.height)
                     .offset(x: line.minX, y: line.minY)
@@ -334,10 +347,9 @@ struct DragOverlay: View {
                 .background(Capsule().fill(.regularMaterial))
                 .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1))
                 .fixedSize()
-                .offset(x: drag.point.x + 12, y: drag.point.y - 14)
+                .offset(x: drag.point.x - origin.x + 12, y: drag.point.y - origin.y - 14)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
     }
 }
