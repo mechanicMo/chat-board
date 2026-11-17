@@ -859,7 +859,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.level = .floating
+        // A normal window, not a floating one: it comes forward with Claude, and any other app you
+        // switch to can sit on top of it. It stays on screen behind them instead of hiding.
+        panel.level = .normal
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = FirstClickHostingView(rootView: AnyView(BoardView(board: board).background(.regularMaterial)))
@@ -894,9 +896,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 returnFocusToClaude(from: clickPanel)
             }
         }
-        // Clicking back into Claude closes the search, so a leftover filter never sits there while you work.
+        board.onSearchDropped = { [weak clickPanel] in clickPanel?.allowsKey = false }
+        // Clicking anywhere else closes the search, so a leftover filter never sits there while you work.
+        // The keyboard stays wherever you clicked, so another app you switched to keeps it.
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak board] _ in
-            MainActor.assumeIsolated { board?.endSearch() }
+            MainActor.assumeIsolated { board?.dropSearch() }
         }
         self.board = board
         board.isPointerHeld = { [weak panel] in
@@ -930,6 +934,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated { self?.followClaude(app) }
         }
+        // The board leaves only when Claude does: hidden with Cmd+H or quit. It comes back when Claude is shown again.
+        for name in [NSWorkspace.didHideApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard app?.bundleIdentifier == Self.claude else { return }
+                MainActor.assumeIsolated { self?.board?.dropSearch(); self?.panel.orderOut(nil) }
+            }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didUnhideApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.bundleIdentifier == Self.claude else { return }
+            MainActor.assumeIsolated { self?.followClaude(app) }
+        }
 
         dictation = DictationToggle()
         dictation.isBoardShowing = { [weak self] in self?.panel.isVisible ?? false }
@@ -948,14 +967,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = NSImage(systemSymbolName: "list.bullet.rectangle", accessibilityDescription: "Chat Board")
         let menu = NSMenu()
         menu.addItem(withTitle: "Show or hide Chat Board", action: #selector(toggle), keyEquivalent: "")
-        menu.addItem(withTitle: "Chat Board shows only while Claude is in front", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Chat Board sits with Claude; other apps can cover it", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Chat Board", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.first?.target = self
         statusItem.menu = menu
     }
 
-    // Shown only while Claude is the app in front, so it never sits over other apps.
+    // Comes forward with Claude and stays on screen when another app is in front, underneath that app's
+    // windows (it is a normal-level window). It goes away only when Claude is hidden or quits.
     // The panel never takes focus itself, so clicking it keeps Claude in front.
     // The app the board docks beside. Tests point it at a stand-in app with CHAT_BOARD_TARGET (see e2e/).
     nonisolated static let claude = ProcessInfo.processInfo.environment["CHAT_BOARD_TARGET"] ?? "com.anthropic.claudefordesktop"
@@ -966,8 +986,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderFrontRegardless()
             dock.dock()
         } else if app?.bundleIdentifier != Bundle.main.bundleIdentifier {
-            board?.endSearch()
-            panel.orderOut(nil)
+            // Another app came forward: its windows now cover the board. Close any search, keep the board where it is.
+            board?.dropSearch()
         }
     }
 
@@ -981,6 +1001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state: [String: Any] = [
             "at": Date().timeIntervalSince1970 * 1000,
             "visible": panel.isVisible,
+            "windowNumber": panel.windowNumber,
             "panel": [panel.frame.minX, top, panel.frame.width, panel.frame.height].map { Double($0) },
             "isSearching": board.isSearching,
             "query": board.query,

@@ -431,14 +431,26 @@ test("docking", "dragging the stand-in's left edge makes the board narrower") {
     try check(abs(after.width + now.width - area.width) <= 2, "widths \(after.width) + \(now.width) != \(area.width)")
 }
 
-test("docking", "the board hides when another app is in front and comes back with the stand-in") {
+// Front-to-back position of a window among normal-layer windows on screen (0 = frontmost), or nil.
+func stackIndex(_ match: ([String: Any]) -> Bool) -> Int? {
+    let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+    return list.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }.firstIndex(where: match)
+}
+
+test("docking", "another app in front covers the board without hiding it, and the stand-in brings it back on top") {
     allowedFront.insert("com.apple.finder")
     // Opening a folder brings Finder forward with a window, which works even when Finder had none open.
     NSWorkspace.shared.open(URL(fileURLWithPath: demoDir))
     try check(waitFor(3) { frontId() == "com.apple.finder" }, "Finder never came to the front")
-    try check(waitFor(3) { !board().visible }, "the board stayed up over Finder")
+    let number = board().raw["windowNumber"] as? Int ?? -1
+    func boardIndex() -> Int? { stackIndex { ($0[kCGWindowNumber as String] as? Int) == number } }
+    func finderIndex() -> Int? { stackIndex { ($0[kCGWindowOwnerName as String] as? String) == "Finder" } }
+    try check(waitFor(3) { board().visible && boardIndex() != nil }, "the board left the screen when Finder came forward")
+    try check(waitFor(3) { (finderIndex() ?? Int.max) < (boardIndex() ?? -1) },
+              "Finder's window is not above the board (finder \(String(describing: finderIndex())), board \(String(describing: boardIndex())))")
     try focusStandIn()
-    try check(waitFor(3) { board().visible }, "the board didn't come back with the stand-in")
+    try check(waitFor(3) { board().visible }, "the board wasn't showing with the stand-in")
+    try check(waitFor(3) { (boardIndex() ?? Int.max) < (finderIndex() ?? Int.max) }, "the board stayed under Finder after the stand-in came back")
 }
 
 // Clicking and where the keyboard goes

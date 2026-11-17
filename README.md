@@ -11,7 +11,7 @@ Chat Board fixes that. It's a window that sits to the left of the Claude app and
 
 ![Chat Board with made-up chats](docs/board.png)
 
-Chats you haven't looked at since they finished are bright, and ones you've read are dimmed. Side sessions sit indented under the chat that started them. Click a chat to open it, and right-click to archive. The window and Claude always fill the screen together: drag one wider and the other shrinks to match. It only shows while Claude is in front.
+Chats you haven't looked at since they finished are bright, and ones you've read are dimmed. Side sessions sit indented under the chat that started them. Click a chat to open it, and right-click to archive. The window and Claude always fill the screen together: drag one wider and the other shrinks to match. It comes forward with Claude and stays on screen when you switch to another app, sitting underneath that app's windows instead of over them. It goes away only when Claude is hidden or quit.
 
 ## Sections and projects
 

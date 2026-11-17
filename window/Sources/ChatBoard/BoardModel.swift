@@ -420,6 +420,15 @@ final class BoardModel: ObservableObject {
         onSearchChange(false)
     }
 
+    // Closes the search without handing the keyboard to Claude, for when you have already moved to another app.
+    var onSearchDropped: () -> Void = {}
+    func dropSearch() {
+        guard isSearching else { return }
+        isSearching = false
+        query = ""
+        onSearchDropped()
+    }
+
     func moveSelection(by step: Int) {
         let count = shown.count
         guard count > 0 else { return }
