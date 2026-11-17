@@ -17,6 +17,12 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(listed.title == "A chat")
     }
 
+    @Test func aNameTypedInClaudesSidebarIsMarked() throws {
+        #expect(try #require(chat(record: record(["titleSource": "user"]), row: nil, privateFolders: [])).nameIsPersons)
+        #expect(try #require(chat(record: record(["titleSource": "tool"]), row: nil, privateFolders: [])).nameIsPersons == false)
+        #expect(try #require(chat(record: record(), row: nil, privateFolders: [])).nameIsPersons == false)
+    }
+
     @Test func archivedIsHidden() {
         #expect(chat(record: record(["isArchived": true]), row: nil, privateFolders: []) == nil)
     }
@@ -131,5 +137,28 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(ArchiveRequest.fileNames("local_abc")
                 == ["archive-local_abc.json", "archive-local_abc.claimed", "archive-local_abc.result.json"])
         #expect(ArchiveRequest.resultFileName("local_abc") == "archive-local_abc.result.json")
+    }
+}
+
+@Suite struct RenameRequestTests {
+    @Test func aRenameRequestCarriesTheOldTitleAndTheNewName() throws {
+        let request = RenameRequest(localId: "local_abc", title: "Old chat", name: "[x] demo - new task", at: 123)
+        #expect(request.fileName == "rename-local_abc.json")
+        let data = try #require(request.data())
+        let decoded = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(decoded["type"] as? String == "rename")
+        #expect(decoded["localId"] as? String == "local_abc")
+        #expect(decoded["title"] as? String == "Old chat")
+        #expect(decoded["name"] as? String == "[x] demo - new task")
+        #expect(RenameRequest.fileNames("local_abc")
+                == ["rename-local_abc.json", "rename-local_abc.claimed", "rename-local_abc.result.json"])
+    }
+
+    @Test func aNameIsTrimmedAndEmptyTooLongOrUnchangedIsRefused() {
+        #expect(RenameRequest.cleanName("  New name \n", current: "Old") == "New name")
+        #expect(RenameRequest.cleanName("   ", current: "Old") == nil)
+        #expect(RenameRequest.cleanName(" Old ", current: "Old") == nil)
+        #expect(RenameRequest.cleanName(String(repeating: "a", count: 201), current: "Old") == nil)
+        #expect(RenameRequest.cleanName(String(repeating: "a", count: 200), current: "Old") != nil)
     }
 }

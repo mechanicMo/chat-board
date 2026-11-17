@@ -22,6 +22,10 @@ struct ChatRow: View {
     var displayTitle: String? = nil
     // The chat's priority: 1 is the normal size, 0.85 low, 1.3 high. Every font and gap scales with it.
     var scale: Double = 1
+    // Set while the title is being edited in place: the field, and what Return and Esc do.
+    var editText: Binding<String>? = nil
+    var onCommit: () -> Void = {}
+    var onCancel: () -> Void = {}
     @State private var isHovered = false
 
     var body: some View {
@@ -31,12 +35,16 @@ struct ChatRow: View {
                 .frame(width: 3 * max(scale, 0.67))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline) {
-                    // Up to two lines, so a narrow window still shows enough of the title to recognize it.
-                    Text(displayTitle ?? chat.title)
-                        .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))
-                        .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(isUnread ? 1 : 0.62))
-                        .lineLimit(scale < 1 ? 1 : 2)
-                        .truncationMode(.tail)
+                    if let editText {
+                        TitleField(text: editText, size: 16 * scale, onCommit: onCommit, onCancel: onCancel)
+                    } else {
+                        // Up to two lines, so a narrow window still shows enough of the title to recognize it.
+                        Text(displayTitle ?? chat.title)
+                            .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))
+                            .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(isUnread ? 1 : 0.62))
+                            .lineLimit(scale < 1 ? 1 : 2)
+                            .truncationMode(.tail)
+                    }
                     Spacer(minLength: 4)
                     if isUnread {
                         Circle().fill(chat.kind.color).frame(width: 8 * scale, height: 8 * scale)
@@ -189,6 +197,33 @@ struct NoticeBar: View {
 }
 
 // The search box. Typing filters the list, up and down pick a chat, Return opens it, Escape closes the search.
+// A chat's title, edited in place on its row. Return saves, Esc cancels.
+struct TitleField: View {
+    @Binding var text: String
+    let size: Double
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Chat name", text: $text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(.system(size: size))
+            .lineLimit(1...3)
+            .focused($focused)
+            .onSubmit(onCommit)
+            .onKeyPress(.return) { onCommit(); return .handled }
+            .onKeyPress(.escape) { onCancel(); return .handled }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor, lineWidth: 1.5))
+            .onAppear { focused = true }
+            // The panel only takes the keyboard a moment after the field appears, so ask again once it has.
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in focused = true }
+    }
+}
+
 struct SearchField: View {
     @ObservedObject var board: BoardModel
     @FocusState private var focused: Bool
@@ -236,8 +271,11 @@ struct BoardView: View {
     }
 
     private func row(_ chat: Chat, title: String? = nil) -> some View {
-        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat), displayTitle: title,
-                scale: board.priority(of: .chat(chat.id)).scale)
+        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
+                displayTitle: board.pendingName(chat) ?? title,
+                scale: board.priority(of: .chat(chat.id)).scale,
+                editText: board.editingId == chat.id ? $board.editText : nil,
+                onCommit: { board.commitRename() }, onCancel: { board.cancelRename() })
             .padding(.leading, chat.depth > 0 ? 18 : 0)
             .background(GeometryReader { geometry in
                 Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
@@ -247,6 +285,7 @@ struct BoardView: View {
                 Button("Open") { board.open(chat) }
                 if chat.depth == 0 { MoveToMenu(board: board, node: .chat(chat.id)) }
                 PriorityMenu(board: board, node: .chat(chat.id))
+                Button("Rename chat") { board.startRename(chat) }
                 if chat.depth > 0 { Button("Detach to top level") { board.detach(chat) } }
                 Divider()
                 Button("Archive") { board.archive(chat) }
@@ -876,15 +915,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clickPanel.onPress = { [weak board] point in board?.mousePressed(at: point) }
         clickPanel.onDrag = { [weak board] point in board?.mouseDragged(to: point) }
         clickPanel.onRelease = { [weak board] point in board?.mouseReleased(at: point) ?? false }
-        clickPanel.keepsKeyboard = { [weak board] in board?.isSearching ?? false }
+        clickPanel.keepsKeyboard = { [weak board] in (board?.isSearching ?? false) || board?.editingId != nil }
+        // Editing a chat's title in place gives the board the keyboard; finishing gives it back to Claude.
+        board.onEditChange = { [weak clickPanel] editing in
+            guard let clickPanel else { return }
+            if editing {
+                clickPanel.allowsKey = true
+                clickPanel.makeKeyAndOrderFront(nil)
+            } else {
+                returnFocusToClaude(from: clickPanel)
+            }
+        }
         // Renaming a group asks in a small dialog. The board takes the keyboard for it, then hands it back to Claude.
-        board.askName = { [weak clickPanel] current in
+        board.askName = { [weak clickPanel] heading, current in
             let alert = NSAlert()
-            alert.messageText = "Rename group"
+            alert.messageText = heading
             alert.addButton(withTitle: "Rename")
             alert.addButton(withTitle: "Cancel")
             let field = NSTextField(string: current)
-            field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+            field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
             alert.accessoryView = field
             alert.window.initialFirstResponder = field
             NSApp.activate(ignoringOtherApps: true)
@@ -905,8 +954,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         board.onSearchDropped = { [weak clickPanel] in clickPanel?.allowsKey = false }
         // Clicking anywhere else closes the search, so a leftover filter never sits there while you work.
         // The keyboard stays wherever you clicked, so another app you switched to keeps it.
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak board] _ in
-            MainActor.assumeIsolated { board?.dropSearch() }
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak board, weak clickPanel] _ in
+            MainActor.assumeIsolated {
+                board?.dropSearch()
+                board?.dropRename()
+                clickPanel?.allowsKey = false
+            }
         }
         self.board = board
         board.isPointerHeld = { [weak panel] in

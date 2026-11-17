@@ -51,6 +51,7 @@ final class BoardModel: ObservableObject {
     private var recordCache: [String: (mtime: Double, record: [String: Any])] = [:]
     private var rowCache: [String: (mtime: Double, row: [String: Any])] = [:]
     private var pendingDetach: [String: String] = [:]   // localId -> title
+    private var pendingRename: [String: (title: String, name: String, answeredAt: Double?)] = [:]   // by localId
     private var timer: Timer?
     private var configWasUnreadable = false
 
@@ -116,6 +117,7 @@ final class BoardModel: ObservableObject {
         if next != chats { chats = next }
         refreshLayout(list)
         settleDetaches()
+        settleRenames()
     }
 
     // MARK: Sections and project groups
@@ -226,7 +228,7 @@ final class BoardModel: ObservableObject {
     }
 
     func mousePressed(at point: CGPoint) {
-        guard !isSearching, let node = Drop.pick(at: point, slots: Array(slots.values)) else { press = nil; return }
+        guard !isSearching, editingId == nil, let node = Drop.pick(at: point, slots: Array(slots.values)) else { press = nil; return }
         press = (node, point)
     }
 
@@ -285,11 +287,11 @@ final class BoardModel: ObservableObject {
         apply(Moves.ungroup(layout, id))
     }
 
-    // Set by the app: asks for a new name. Nil when the person cancels.
-    var askName: (String) -> String? = { _ in nil }
+    // Set by the app: asks for a new name under the given heading. Nil when the person cancels.
+    var askName: (_ heading: String, _ current: String) -> String? = { _, _ in nil }
 
     func renameGroup(_ id: String) {
-        guard let current = layout.groups[id]?.name, let name = askName(current) else { return }
+        guard let current = layout.groups[id]?.name, let name = askName("Rename group", current) else { return }
         apply(Moves.rename(layout, group: id, to: name))
     }
 
@@ -376,6 +378,11 @@ final class BoardModel: ObservableObject {
     // True when the click landed on a chat and opened it.
     @discardableResult
     func click(at point: CGPoint) -> Bool {
+        // A click inside the title being edited stays in the field; a click anywhere else saves it first.
+        if let id = editingId {
+            if rowsInWindow[id]?.contains(point) == true { return false }
+            commitRename()
+        }
         if let id = rowsInWindow.first(where: { $0.value.contains(point) })?.key,
            let chat = chats.first(where: { $0.id == id }) {
             endSearch()
@@ -519,6 +526,139 @@ final class BoardModel: ObservableObject {
                       Date().timeIntervalSince1970 * 1000 - number(request["at"]) > 20000 {
                 notice.text = "Couldn't move \(title): open it, or the chat that started it, and try again."
                 pendingDetach[localId] = nil
+                clear()
+            }
+        }
+    }
+
+    // MARK: Rename a chat in place
+
+    // The chat whose title is being edited on the board, and the text in its field.
+    @Published private(set) var editingId: String?
+    @Published var editText = ""
+    // Set by the app: gives the board the keyboard while a title is edited, and hands it back to Claude after.
+    var onEditChange: (Bool) -> Void = { _ in }
+
+    // Right-click > Rename chat turns the row's title into a text field holding the FULL title (a card's row shows
+    // only the task, and saving that would drop the [tag] project part). Return saves, Esc or an unchanged name cancels.
+    func startRename(_ chat: Chat) {
+        guard pendingRename[chat.localId] == nil else { notice.text = "Still renaming \(chat.title)..."; return }
+        endSearch()
+        editText = chat.title
+        editingId = chat.id
+        onEditChange(true)
+    }
+
+    func commitRename() {
+        guard let id = editingId else { return }
+        let typed = editText
+        finishEditing(handBack: true)
+        if let chat = chats.first(where: { $0.id == id }) { submitRename(chat, typed: typed) }
+    }
+
+    func cancelRename() {
+        guard editingId != nil else { return }
+        finishEditing(handBack: true)
+    }
+
+    // The board lost the keyboard (you clicked into Claude or another app): what you typed is kept, like Finder,
+    // but the keyboard stays where you clicked.
+    func dropRename() {
+        guard let id = editingId else { return }
+        let typed = editText
+        finishEditing(handBack: false)
+        if let chat = chats.first(where: { $0.id == id }) { submitRename(chat, typed: typed) }
+    }
+
+    private func finishEditing(handBack: Bool) {
+        editingId = nil
+        editText = ""
+        if handBack { onEditChange(false) }
+    }
+
+    // The name the board shows for a chat while Claude hasn't caught up with a rename yet.
+    func pendingName(_ chat: Chat) -> String? {
+        guard let pending = pendingRename[chat.localId], chat.title != pending.name else { return nil }
+        return pending.name
+    }
+
+    // Any open chat's mod carries out the rename through Claude's own rename tool.
+    func submitRename(_ chat: Chat, typed: String) {
+        guard pendingRename[chat.localId] == nil else { notice.text = "Still renaming \(chat.title)..."; return }
+        guard let name = RenameRequest.cleanName(typed, current: chat.title) else {
+            if typed.trimmingCharacters(in: .whitespacesAndNewlines).count > 200 {
+                notice.text = "That name is too long: Claude allows 200 characters."
+            }
+            return
+        }
+        // A name typed in Claude's own sidebar can only be replaced there.
+        if chat.nameIsPersons { return renameInClaude(chat, to: name) }
+        let dir = shareDir + "/requests"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for leftover in RenameRequest.fileNames(chat.localId) { try? FileManager.default.removeItem(atPath: "\(dir)/\(leftover)") }
+        let request = RenameRequest(localId: chat.localId, title: chat.title, name: name)
+        guard let data = request.data(), FileManager.default.createFile(atPath: "\(dir)/\(request.fileName)", contents: data) else {
+            notice.text = "Couldn't rename \(chat.title): the request file couldn't be written."
+            return
+        }
+        pendingRename[chat.localId] = (chat.title, name, nil)
+        objectWillChange.send()
+        notice.text = "Renaming to \(name)..."
+    }
+
+    // Claude's own Rename, through its window (see ClaudeRename.swift). The sidebar may flash open for a moment.
+    private var renamingInClaude: ClaudeRename?
+
+    private func renameInClaude(_ chat: Chat, to name: String) {
+        guard renamingInClaude == nil else { notice.text = "Still renaming the last one..."; return }
+        pendingRename[chat.localId] = (chat.title, name, nil)
+        objectWillChange.send()
+        notice.text = "Renaming to \(name) in Claude..."
+        let job = ClaudeRename(title: chat.title, name: name, openChat: { [weak self] in self?.open(chat) }) { [weak self] message in
+            guard let self else { return }
+            self.renamingInClaude = nil
+            self.notice.text = message
+            // Pressing Return is only a claim: settleRenames waits for Claude's list to show the new name.
+            let now = Date().timeIntervalSince1970 * 1000
+            self.pendingRename[chat.localId] = message.hasPrefix("Couldn't") ? nil : (chat.title, name, now)
+            self.objectWillChange.send()
+        }
+        renamingInClaude = job
+        job.start()
+    }
+
+    // The chat's answer is only a claim until Claude's own list shows the new title, so the board waits for that too.
+    private func settleRenames() {
+        let now = Date().timeIntervalSince1970 * 1000
+        for (localId, pending) in pendingRename {
+            let clear = { for name in RenameRequest.fileNames(localId) { try? FileManager.default.removeItem(atPath: "\(shareDir)/requests/\(name)") } }
+            let shown = chats.first(where: { $0.localId == localId })?.title
+            if let answeredAt = pending.answeredAt {
+                if shown == pending.name {
+                    pendingRename[localId] = nil
+                    objectWillChange.send()
+                } else if now - answeredAt > 15000 {
+                    notice.text = "Claude still shows the old name for \(pending.title)."
+                    pendingRename[localId] = nil
+                    objectWillChange.send()
+                }
+            } else if let result = json("\(shareDir)/requests/\(RenameRequest.resultFileName(localId))") {
+                let text = result["text"] as? String ?? "Renamed \(pending.title)."
+                clear()
+                // The list said Claude named it, but the person had renamed it in Claude since: use Claude's menu.
+                if text.contains("set by the user"), let chat = chats.first(where: { $0.localId == localId }) {
+                    pendingRename[localId] = nil
+                    renameInClaude(chat, to: pending.name)
+                    continue
+                }
+                notice.text = text
+                pendingRename[localId] = text.hasPrefix("Couldn't") ? nil : (pending.title, pending.name, now)
+                objectWillChange.send()
+            } else if let request = json("\(shareDir)/requests/rename-\(localId).json"),
+                      now - number(request["at"]) > 20000 {
+                notice.text = "Couldn't rename \(pending.title): no open chat picked it up. Run /reload-plugins in any chat and try again."
+                pendingRename[localId] = nil
+                objectWillChange.send()
                 clear()
             }
         }

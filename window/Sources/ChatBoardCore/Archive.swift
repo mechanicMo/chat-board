@@ -58,3 +58,38 @@ public struct DetachRequest {
 
     public func data() -> Data? { try? JSONSerialization.data(withJSONObject: json) }
 }
+
+// Renames a chat. The app's rename tool is only reachable from inside a chat, so any open chat's mod carries it out.
+// The board checks the name first, so a request never asks for an empty, too long or unchanged title.
+public struct RenameRequest {
+    public let localId: String
+    public let title: String
+    public let name: String
+    public let at: Double
+
+    // The cleaned-up new name, or nil when there is nothing to rename to.
+    public static func cleanName(_ input: String, current: String) -> String? {
+        let name = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 200, name != current else { return nil }
+        return name
+    }
+
+    public init(localId: String, title: String, name: String, at: Double = Date().timeIntervalSince1970 * 1000) {
+        self.localId = localId
+        self.title = title
+        self.name = name
+        self.at = at
+    }
+
+    public var fileName: String { "rename-\(localId).json" }
+    public static func resultFileName(_ localId: String) -> String { "rename-\(localId).result.json" }
+    public static func fileNames(_ localId: String) -> [String] {
+        [".json", ".claimed", ".result.json"].map { "rename-\(localId)\($0)" }
+    }
+
+    public var json: [String: Any] {
+        ["type": "rename", "localId": localId, "title": title, "name": name, "at": at]
+    }
+
+    public func data() -> Data? { try? JSONSerialization.data(withJSONObject: json) }
+}

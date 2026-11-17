@@ -219,6 +219,22 @@ const detach = async ($: EngineInterface, sessionId: string, name: string): Prom
   }
 }
 
+// Renames through the app's own tool. Unlike archive, the app doesn't refuse a mod's rename in auto mode, so
+// any open chat can carry it out. A title the person typed in Claude's own menu needs their OK on a card, which a
+// mod can't show, so the app refuses that one and its answer is passed on as it is.
+const rename = async ($: EngineInterface, localId: string, name: string, title: string): Promise<string> => {
+  try {
+    const answer = await $.mcp.call('ccd_session_mgmt', 'set_session_title', { session_id: localId, title: name })
+    const said = (answer.content ?? [])
+      .map(block => (block && typeof block === 'object' && 'text' in block ? String((block as { text: unknown }).text) : ''))
+      .join(' ')
+      .trim()
+    return answer.isError ? `Couldn't rename ${title}: ${said}` : said || `Renamed ${title} to ${name}.`
+  } catch (failure) {
+    return `Couldn't rename ${title}: ${String(failure).slice(0, 160)}`
+  }
+}
+
 // Which session id this chat passes to detach a request's chat, or null when it is neither the child nor its parent.
 export const detachTarget = (mine: string | undefined, localId: string, parentLocalId: unknown): string | null => {
   if (!mine) return null
@@ -254,6 +270,25 @@ const handleRequests = async ($: EngineInterface) => {
         await $.fs.write(base + '.claimed', self)
         if ((await $.fs.read(base + '.claimed')) !== self) continue
         const text = await detach($, target, typeof request.title === 'string' ? request.title : 'that chat')
+        await $.fs.write(base + '.result.json', JSON.stringify({ text, at: await $.clock.now() }))
+      } catch {
+        // Unreadable or half-written request: leave it for the next pass.
+      }
+      continue
+    }
+    const renameMatch = /^rename-(local_[A-Za-z0-9-]+)\.json$/.exec(name)
+    if (renameMatch) {
+      const localId = renameMatch[1]!
+      const base = dir + '/requests/rename-' + localId
+      if (names.includes(`rename-${localId}.result.json`) || names.includes(`rename-${localId}.claimed`)) continue
+      try {
+        const request = JSON.parse(await $.fs.read(base + '.json')) as { at?: unknown; title?: unknown; name?: unknown }
+        if (typeof request.at !== 'number' || (await $.clock.now()) - request.at > TOKEN_LIFE) continue
+        const newName = typeof request.name === 'string' ? request.name.trim() : ''
+        if (!newName || newName.length > 200) continue
+        await $.fs.write(base + '.claimed', self)
+        if ((await $.fs.read(base + '.claimed')) !== self) continue
+        const text = await rename($, localId, newName, typeof request.title === 'string' ? request.title : 'that chat')
         await $.fs.write(base + '.result.json', JSON.stringify({ text, at: await $.clock.now() }))
       } catch {
         // Unreadable or half-written request: leave it for the next pass.

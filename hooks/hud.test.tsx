@@ -463,6 +463,37 @@ test('an archive request from the Chat Board window is carried out once and answ
   expect(JSON.parse(files.get('/Users/alex/.claude/chat-hud/requests/archive-local_old.result.json')!.text).text).toBe('Archived.')
 })
 
+test('a rename request from the Chat Board window is carried out once, and a bad one is skipped', async ($, on) => {
+  const clock = mock.clock(on, { now: 1793900000000 })
+  const { files } = engine(on, answered)
+  const calls: string[] = []
+  on('mcp.call', (_: unknown, e: any) => {
+    calls.push(JSON.stringify(e))
+    return { value: { content: [{ type: 'text', text: 'Renamed session local_old to "[x] demo - new task".' }] } }
+  })
+  files.set('/Users/alex/.claude/chat-hud/requests/rename-local_old.json', {
+    text: JSON.stringify({ type: 'rename', localId: 'local_old', title: 'Old chat', name: '  [x] demo - new task ', at: 1793900000000 }),
+    mtimeMs: 1,
+  })
+  files.set('/Users/alex/.claude/chat-hud/requests/rename-local_empty.json', {
+    text: JSON.stringify({ type: 'rename', localId: 'local_empty', title: 'Other chat', name: '   ', at: 1793900000000 }),
+    mtimeMs: 1,
+  })
+
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await clock.advance(6000)
+  await clock.settle()
+  await clock.advance(6000)
+  await clock.settle()
+
+  expect(calls.length).toBe(1)
+  expect(calls[0]).toContain('set_session_title')
+  expect(calls[0]).toContain('"session_id":"local_old"')
+  expect(calls[0]).toContain('"title":"[x] demo - new task"')
+  expect(JSON.parse(files.get('/Users/alex/.claude/chat-hud/requests/rename-local_old.result.json')!.text).text).toContain('Renamed')
+  expect(files.get('/Users/alex/.claude/chat-hud/requests/rename-local_empty.result.json')).toBeUndefined()
+})
+
 test('a detach request is carried out only by the chat itself or its parent', async ($, on) => {
   const clock = mock.clock(on, { now: 1793900000000 })
   const { files } = engine(on, answered)
