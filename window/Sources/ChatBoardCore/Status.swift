@@ -87,3 +87,51 @@ public func describe(_ row: [String: Any]?, now: Double = Date().timeIntervalSin
     let replied = number(row["repliedAt"])
     return (.yourMove, replied > 0 ? "Replied at \(clock(replied))." : "")
 }
+
+// One button from a chat's end-of-turn box, as Chat Board draws it. `action` is set for the app's own buttons
+// (commit, create_pr, ...), whose text Claude draws itself; a reply button sends its label as the person's answer.
+public struct AnswerButton: Equatable, Sendable {
+    public let label: String
+    public let action: String?
+    public init(label: String, action: String? = nil) {
+        self.label = label
+        self.action = action
+    }
+}
+
+// The words the board shows for the app's own buttons. Claude's own text for them isn't known ahead of time,
+// so pressing one looks for these words and presses nothing when it can't find them.
+public let appActionLabels: [String: String] = [
+    "commit": "Commit", "create_pr": "Create PR", "merge": "Merge", "fix_ci": "Fix CI",
+    "address_comments": "Address comments", "resolve_conflicts": "Resolve conflicts", "verify": "Verify",
+    "archive": "Archive", "new_session": "New session",
+]
+
+// The buttons to draw beside a chat's question: only when the line shown is the end-of-turn box's own question
+// (not a waiting card or a question written in a reply), and only when the box has one or two buttons and nothing else.
+// Mo, 2026-11-17: "If the question only has like one or two buttons, then have that. If it does not ... it should just
+// stay the way it is."
+public func answerButtons(_ row: [String: Any]?, now: Double = Date().timeIntervalSince1970 * 1000) -> [AnswerButton] {
+    guard let row, waitingOn(row["pending"] as? [String: Any], now: now) == nil,
+          row["phase"] as? String != "working",
+          let end = row["turnEnd"] as? [String: Any], number(end["at"]) >= number(row["userAt"]),
+          let ask = end["ask"] as? String, !ask.isEmpty,
+          let actions = end["actions"] as? [[String: Any]], (1...2).contains(actions.count) else { return [] }
+    let buttons: [AnswerButton] = actions.compactMap { item in
+        let label = (item["label"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        if let action = item["action"] as? String, !action.isEmpty {
+            return AnswerButton(label: appActionLabels[action] ?? action.replacingOccurrences(of: "_", with: " ").capitalized, action: action)
+        }
+        return label.isEmpty ? nil : AnswerButton(label: label)
+    }
+    return buttons.count == actions.count ? buttons : []
+}
+
+// Whether a button in Claude's window is the one to press. A reply button's text is exactly its label. An app
+// button's text is Claude's own, so it only has to start with the board's word for it ("Commit" matches "Commit changes").
+public func buttonMatches(_ text: String, _ button: AnswerButton) -> Bool {
+    let shown = text.trimmingCharacters(in: .whitespaces).lowercased()
+    let wanted = button.label.lowercased()
+    guard !shown.isEmpty, !shown.hasPrefix("more options") else { return false }
+    return button.action == nil ? shown == wanted : shown.hasPrefix(wanted)
+}

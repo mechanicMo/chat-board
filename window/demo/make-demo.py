@@ -37,6 +37,10 @@ chats = [
     ("[side] chat board - write the readme", "working", "", 0, False, None, 1),
 ]
 
+# The end-of-turn box's buttons for some questions. A question with one or two shows them on the board;
+# the recipe app's search question has none, so it stays a plain line.
+buttons = {0: [{"action": None, "label": "Replace it"}, {"action": None, "label": "Sit above it"}]}
+
 records = os.path.join(root, "records", "demo")
 rows = os.path.join(root, "share", "rows")
 os.makedirs(records, exist_ok=True)
@@ -59,7 +63,7 @@ for i, (title, kind, line, ago, unread, parent, focused) in enumerate(chats):
            "repliedAt": finished if kind != "working" else 0,
            "phase": "working" if kind == "working" else "idle"}
     if kind == "question":
-        row["turnEnd"] = {"at": finished, "ask": line, "recap": ""}
+        row["turnEnd"] = {"at": finished, "ask": line, "recap": "", "actions": buttons.get(i, [])}
     elif kind == "ready":
         row["verdict"] = {"at": finished, "isDone": True, "left": line}
     elif kind == "your_move":

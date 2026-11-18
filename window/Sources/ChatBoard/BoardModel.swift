@@ -383,6 +383,15 @@ final class BoardModel: ObservableObject {
             if rowsInWindow[id]?.contains(point) == true { return false }
             commitRename()
         }
+        // A question's button sits inside its chat's row, so it is checked first.
+        if !isSearching, let hit = hitsInWindow.first(where: { $0.key.hasPrefix("answer:") && $0.value.contains(point) })?.key {
+            let parts = hit.split(separator: ":", maxSplits: 2).map(String.init)
+            if parts.count == 3, let index = Int(parts[1]), let chat = chats.first(where: { $0.id == parts[2] }),
+               chat.buttons.indices.contains(index) {
+                answer(chat, chat.buttons[index])
+                return true
+            }
+        }
         if let id = rowsInWindow.first(where: { $0.value.contains(point) })?.key,
            let chat = chats.first(where: { $0.id == id }) {
             endSearch()
@@ -474,6 +483,34 @@ final class BoardModel: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    // Presses a chat's own question button in Claude's window (see ClaudeAnswer.swift).
+    private var answering: ClaudeAnswer?
+
+    func answer(_ chat: Chat, _ button: AnswerButton) {
+        guard answering == nil else { notice.text = "Still answering the last one..."; return }
+        notice.text = "Answering \(chat.title): \(button.label)..."
+        // The press needs that chat open in Claude. Remember where Mo was so a good press puts him back there.
+        let before = chats.first { $0.id == currentId && $0.id != chat.id }
+        let front = NSWorkspace.shared.frontmostApplication
+        let job = ClaudeAnswer(title: chat.title, button: button, openChat: { [weak self] in self?.open(chat) }) { [weak self] message in
+            self?.notice.text = message
+            self?.answering = nil
+            // A failed press stays on that chat so the reason is in view.
+            guard message.hasPrefix("Answered") else { return }
+            self?.goBack(to: before, front: front)
+        }
+        answering = job
+        job.start()
+    }
+
+    private func goBack(to chat: Chat?, front: NSRunningApplication?) {
+        if let chat { open(chat) }
+        guard let front, front.bundleIdentifier != AppDelegate.claude,
+              front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        // Opening a chat link brings Claude forward, so hand the front back once that has happened.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { front.activate() }
     }
 
     // Archives through Claude's own window (see ClaudeArchive.swift). A plugin can't archive from a chat in auto mode.

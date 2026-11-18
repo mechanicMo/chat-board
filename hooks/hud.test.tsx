@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import cases from '../fixtures/describe-cases'
-import { ageLabel, buildPrompt, describe, parseReply, questionIn, toRow, waitingOn } from './parse'
+import { ageLabel, boxShowsQuestion, buildPrompt, describe, parseReply, questionIn, toRow, waitingOn } from './parse'
 
 const GOOD = JSON.stringify({
   status: 'needs_you',
@@ -192,6 +192,35 @@ test('a question in the chat\'s end-of-turn box shows Question for you, for free
   expect(await ui.find({ type: 'Text', text: /Send the draft to Sam/ })).toBeDefined()
   expect(calls.length).toBe(0)
   await ui.unmount()
+})
+
+test('the box keeps its buttons for Chat Board, and drops them when the box says the question is not shown', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const { writes } = engine(on, answered)
+  const lastTurnEnd = () => {
+    const rows = writes.filter(one => one.path.includes('/rows/') && one.text.includes('"turnEnd"'))
+    return JSON.parse(rows[rows.length - 1]!.text).turnEnd
+  }
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'r', ask: 'Fix it here?', actions: [{ label: 'Yes, fix it' }, { action: 'commit', label: '' }] } as any)
+  expect(lastTurnEnd().actions).toEqual([{ action: null, label: 'Yes, fix it' }, { action: 'commit', label: '' }])
+
+  // Passed as JSON text, the same buttons.
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'r', ask: 'Fix it here?', actions: '[{"label":"Not now"}]' } as any)
+  expect(lastTurnEnd().actions).toEqual([{ action: null, label: 'Not now' }])
+
+  // No question, no buttons.
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'r', actions: [{ label: 'Yes' }] } as any)
+  expect(lastTurnEnd().actions).toEqual([])
+})
+
+test('a box whose answer says the question was dropped records no buttons', async () => {
+  expect(boxShowsQuestion({ result: 'shown' })).toBe(true)
+  expect(boxShowsQuestion({ result: 'Recap shown. The question and its buttons were dropped: commit is not available.' })).toBe(false)
+  expect(boxShowsQuestion({ result: "The question isn't shown." })).toBe(false)
+  expect(boxShowsQuestion({ deny: 'no' })).toBe(false)
+  expect(boxShowsQuestion({ result: 'x', isError: true })).toBe(false)
 })
 
 test('the chat says itself when it is ready to close, until the person writes again', async ($, on) => {

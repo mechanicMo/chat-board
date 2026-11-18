@@ -26,6 +26,8 @@ struct ChatRow: View {
     var editText: Binding<String>? = nil
     var onCommit: () -> Void = {}
     var onCancel: () -> Void = {}
+    // The question's one or two buttons, drawn side by side under the line. Empty for low priority chats.
+    var buttons: [AnswerButton] = []
     @State private var isHovered = false
 
     var body: some View {
@@ -60,6 +62,15 @@ struct ChatRow: View {
                         .lineLimit(scale < 1 ? 1 : 2)
                         .truncationMode(.tail)
                 }
+                if !buttons.isEmpty {
+                    HStack(spacing: 6 * scale) {
+                        ForEach(Array(buttons.enumerated()), id: \.offset) { index, button in
+                            AnswerButtonView(button: button, color: chat.kind.color, scale: scale, isCurrent: isCurrent)
+                                .background(reportHit("answer:\(index):\(chat.id)"))
+                        }
+                    }
+                    .padding(.top, 4 * scale)
+                }
             }
         }
         .foregroundStyle(isCurrent ? Color.white : Color.primary)
@@ -76,6 +87,33 @@ struct ChatRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(chat.line)
+    }
+}
+
+// One of a question's buttons on the board. It takes no clicks itself: its frame goes to BoardModel.click(at:),
+// which presses the same button in Claude's window.
+struct AnswerButtonView: View {
+    let button: AnswerButton
+    let color: Color
+    let scale: Double
+    let isCurrent: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        Text(button.label)
+            .font(.system(size: 13 * scale, weight: .semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(isCurrent ? color : Color.white)
+            .padding(.vertical, 4 * scale)
+            .padding(.horizontal, 10 * scale)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isCurrent ? Color.white : color.opacity(isHovered ? 1 : 0.85))
+            )
+            .onHover { isHovered = $0 }
+            .help(button.action == nil ? "Answers \"\(button.label)\" in the chat" : "Presses \(button.label) in the chat")
     }
 }
 
@@ -270,12 +308,15 @@ struct BoardView: View {
             .opacity(board.drag?.node == node ? 0.35 : 1)
     }
 
-    private func row(_ chat: Chat, title: String? = nil) -> some View {
-        ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
+    // `card` is the project card the row sits in: a low priority card hides its chats' buttons too.
+    private func row(_ chat: Chat, title: String? = nil, card: String? = nil) -> some View {
+        let isLow = board.priority(of: .chat(chat.id)) == .low || card.map { board.priority(of: .group($0)) == .low } == true
+        return ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
                 displayTitle: board.pendingName(chat) ?? title,
                 scale: board.priority(of: .chat(chat.id)).scale,
                 editText: board.editingId == chat.id ? $board.editText : nil,
-                onCommit: { board.commitRename() }, onCancel: { board.cancelRename() })
+                onCommit: { board.commitRename() }, onCancel: { board.cancelRename() },
+                buttons: isLow || board.editingId == chat.id ? [] : chat.buttons)
             .padding(.leading, chat.depth > 0 ? 18 : 0)
             .background(GeometryReader { geometry in
                 Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
@@ -380,9 +421,9 @@ struct BoardView: View {
     private func cardRows(_ card: Tree.Card) -> some View {
         ForEach(card.chats) { chat in
             if chat.depth == 0 {
-                draggable(row(chat, title: taskTitle(chat)), .chat(chat.id), in: .group(card.id))
+                draggable(row(chat, title: taskTitle(chat), card: card.id), .chat(chat.id), in: .group(card.id))
             } else {
-                row(chat, title: taskTitle(chat))
+                row(chat, title: taskTitle(chat), card: card.id)
             }
         }
         .padding(.top, 4)

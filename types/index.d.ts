@@ -23,7 +23,8 @@ export type HudRow = {
   repliedAt: number
   summary: HudEntry | null
   // The chat's end-of-turn box. A question in it means the chat needs the person.
-  turnEnd?: { ask: string | null; recap: string | null; at: number } | null
+  // `actions` are the box's buttons, kept only when the box shows the question.
+  turnEnd?: { ask: string | null; recap: string | null; actions?: HudAction[]; at: number } | null
   // The chat's own answer to "is this chat's purpose done?", given at the end of each turn.
   verdict?: { isDone: boolean; left: string; purpose: string; at: number } | null
   // A question written at the end of the chat's last reply, and when that reply ended.
@@ -33,6 +34,9 @@ export type HudRow = {
   // `asked` is set when the permission check put the call to a person.
   pending?: { tool: string; at: number; asked: boolean } | null
 }
+
+// One button in the end-of-turn box: an app action (commit, create_pr, ...) or a reply that sends its label.
+export type HudAction = { action: string | null; label: string }
 
 export type HudKind = 'working' | 'question' | 'your_move' | 'ready'
 

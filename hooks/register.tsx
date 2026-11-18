@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { HudRow } from '../types'
-import { ageLabel, buildPrompt, describe, freshSummary, parseReply, purposeOf, questionIn, STATUS_PROMPT, SYSTEM, toRow } from './parse'
+import { ageLabel, answerActions, boxShowsQuestion, buildPrompt, describe, freshSummary, parseReply, purposeOf, questionIn, STATUS_PROMPT, SYSTEM, toRow } from './parse'
 
 const PREFIX = 'chat:'
 const USAGE = 'usage:'
@@ -457,9 +457,13 @@ export const register: Register = on => {
   // The chat's end-of-turn box: a question in it means the chat needs the person.
   on('tool.call', { tool: 'mcp__ccd_turn__wrap_up' }, async ($, e, next) => {
     const ran = await next(e)
-    const input = e as unknown as { ask?: unknown; recap?: unknown }
+    const input = e as unknown as { ask?: unknown; recap?: unknown; actions?: unknown }
     const clean = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null)
-    const turnEnd = { ask: clean(input.ask), recap: clean(input.recap), at: await $.clock.now() }
+    const ask = clean(input.ask)
+    // The box's buttons, so Chat Board can draw them beside the question. Kept only when the box shows the question:
+    // the app drops the question and its buttons when an action isn't available, and says so in its answer.
+    const actions = ask && boxShowsQuestion(ran) ? answerActions(input.actions) : []
+    const turnEnd = { ask, recap: clean(input.recap), actions, at: await $.clock.now() }
     await saveRow($, current => ({ ...current, turnEnd }))
     return ran
   })

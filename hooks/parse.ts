@@ -1,4 +1,4 @@
-import type { HudEntry, HudKind, HudRow, HudStatus } from '../types'
+import type { HudAction, HudEntry, HudKind, HudRow, HudStatus } from '../types'
 
 const STATUSES: readonly HudStatus[] = ['working', 'needs_you', 'waiting_on_others', 'ready_to_close']
 export const ageLabel = (ms: number): string => {
@@ -179,3 +179,30 @@ Write short plain words, the way a person would say them.`
 
 export const clockLabel = (at: number, withSeconds = false): string =>
   new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(withSeconds ? { second: '2-digit' } : {}) })
+
+// The end-of-turn box's buttons as the chat passed them: a list of { action?, label? }, or that list as JSON text.
+// A reply button is its label; an app button (commit, create_pr, ...) is its action, whatever label came with it.
+export const answerActions = (value: unknown): HudAction[] => {
+  let list = value
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list) } catch { return [] }
+  }
+  if (!Array.isArray(list)) return []
+  return list.flatMap((item): HudAction[] => {
+    if (!item || typeof item !== 'object') return []
+    const { action, label } = item as { action?: unknown; label?: unknown }
+    const name = typeof action === 'string' && action.trim() !== '' ? action.trim() : null
+    const text = typeof label === 'string' ? label.trim().slice(0, 40) : ''
+    if (!name && !text) return []
+    return [{ action: name, label: text }]
+  })
+}
+
+// False when the box's answer says the question isn't showing (refused, an error, or dropped with an unavailable action).
+export const boxShowsQuestion = (ran: unknown): boolean => {
+  if (!ran || typeof ran !== 'object') return false
+  const answer = ran as { deny?: unknown; isError?: unknown; result?: unknown }
+  if (answer.deny !== undefined || answer.isError === true) return false
+  const text = typeof answer.result === 'string' ? answer.result : JSON.stringify(answer.result ?? '')
+  return !/(not|n't) (be )?(show|shown|drawn)|dropped|refused/i.test(text)
+}
