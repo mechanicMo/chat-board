@@ -26,7 +26,8 @@ export type HudRow = {
   // `actions` are the box's buttons, kept only when the box shows the question.
   turnEnd?: { ask: string | null; recap: string | null; actions?: HudAction[]; at: number } | null
   // The chat's own answer to "is this chat's purpose done?", given at the end of each turn.
-  verdict?: { isDone: boolean; left: string; purpose: string; at: number } | null
+  // `goAhead` is the one step the chat waits on the person's OK for, drawn as a button on Chat Board.
+  verdict?: { isDone: boolean; left: string; purpose: string; goAhead?: string; at: number } | null
   // A question written at the end of the chat's last reply, and when that reply ended.
   textQuestion?: { text: string; at: number } | null
   // A tool call still running. A card waiting on the person (permission, rename, a question) holds the call open,

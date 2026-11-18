@@ -346,6 +346,10 @@ export const register: Register = on => {
           is_done: { type: 'boolean', description: "True only if this chat's purpose is complete and it could be closed now with nothing lost." },
           left: { type: 'string', description: 'If not done, what still has to happen and who does it. If done, what was finished. One short sentence.' },
           purpose: { type: 'string', description: 'Why this chat exists, in one short sentence.' },
+          go_ahead: {
+            type: 'string',
+            description: "Only when the one thing left is the user's OK for you to do one named step in this chat: that step in 1-5 words (e.g. 'merge the branch', 'send the draft'). Leave it out otherwise.",
+          },
         },
         required: ['is_done', 'left', 'purpose'],
       },
@@ -440,9 +444,12 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__chat-hud__chat_status' }, async ($, e) => {
     // A tool call's arguments sit on the event itself, beside `tool`.
-    const input = e as unknown as { is_done?: unknown; left?: unknown; purpose?: unknown }
+    const input = e as unknown as { is_done?: unknown; left?: unknown; purpose?: unknown; go_ahead?: unknown }
     const text = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 240) : '')
-    const verdict = { isDone: input.is_done === true, left: text(input.left), purpose: text(input.purpose), at: await $.clock.now() }
+    const isDone = input.is_done === true
+    // The step a go-ahead button on the board would OK. Never kept on a done chat: there is nothing left to OK.
+    const goAhead = isDone ? '' : text(input.go_ahead).slice(0, 48)
+    const verdict = { isDone, left: text(input.left), purpose: text(input.purpose), ...(goAhead ? { goAhead } : {}), at: await $.clock.now() }
     await saveRow($, current => ({ ...current, verdict })).catch(() => {})
     return { result: 'Status recorded.' }
   })

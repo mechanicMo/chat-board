@@ -21,6 +21,17 @@ private func json(_ path: String) -> [String: Any]? {
 
 private func number(_ value: Any?) -> Double { (value as? NSNumber)?.doubleValue ?? 0 }
 
+// Every chat record as it is on disk right now, with no cache: used where a stale answer would send a message to
+// the wrong chat.
+private func freshRecords() -> [[String: Any]] {
+    var records: [[String: Any]] = []
+    for case let relative as String in FileManager.default.enumerator(atPath: recordsDir) ?? NSEnumerator()
+    where relative.hasSuffix(".json") && (relative as NSString).lastPathComponent.hasPrefix("local_") {
+        if let record = json(recordsDir + "/" + relative), record["isArchived"] as? Bool != true { records.append(record) }
+    }
+    return records
+}
+
 private func mtime(_ path: String) -> Double {
     let attributes = try? FileManager.default.attributesOfItem(atPath: path)
     return (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
@@ -489,6 +500,7 @@ final class BoardModel: ObservableObject {
     private var answering: ClaudeAnswer?
 
     func answer(_ chat: Chat, _ button: AnswerButton) {
+        if let reply = button.reply { return sendReply(chat, button, reply) }
         guard answering == nil else { notice.text = "Still answering the last one..."; return }
         notice.text = "Answering \(chat.title): \(button.label)..."
         // The press needs that chat open in Claude. Remember where Mo was so a good press puts him back there.
@@ -502,6 +514,35 @@ final class BoardModel: ObservableObject {
             self?.goBack(to: before, front: front)
         }
         answering = job
+        job.start()
+    }
+
+    // Types an orange chat's go-ahead into it (see ClaudeReply.swift). Every check reads the files fresh, never the
+    // board's last poll, because the board can be up to three seconds behind.
+    private var replying: ClaudeReply?
+
+    private func sendReply(_ chat: Chat, _ button: AnswerButton, _ reply: String) {
+        guard replying == nil, answering == nil else { notice.text = "Still answering the last one..."; return }
+        notice.text = "Sending \"\(reply)\" to \(chat.title)..."
+        let before = chats.first { $0.id == currentId && $0.id != chat.id }
+        let front = NSWorkspace.shared.frontmostApplication
+        let rowPath = shareDir + "/rows/" + chat.id + ".json"
+        let job = ClaudeReply(
+            title: chat.title, reply: reply,
+            openChat: { [weak self] in self?.open(chat) },
+            isStillOffered: { stillOffered(button, row: json(rowPath)) },
+            isOpen: { isFrontChat(chat.localId, records: freshRecords()) },
+            wasSent: { at in
+                guard let row = json(rowPath) else { return false }
+                return number(row["userAt"]) >= at - 2000
+            }
+        ) { [weak self] message in
+            self?.notice.text = message
+            self?.replying = nil
+            guard message.hasPrefix("Sent") else { return }
+            self?.goBack(to: before, front: front)
+        }
+        replying = job
         job.start()
     }
 

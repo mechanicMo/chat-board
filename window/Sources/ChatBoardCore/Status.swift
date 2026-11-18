@@ -90,12 +90,19 @@ public func describe(_ row: [String: Any]?, now: Double = Date().timeIntervalSin
 
 // One button from a chat's end-of-turn box, as Chat Board draws it. `action` is set for the app's own buttons
 // (commit, create_pr, ...), whose text Claude draws itself; a reply button sends its label as the person's answer.
+// `reply` is set for an orange chat's go-ahead: there is no button in Claude to press, so the board types `reply`
+// into the chat's message box instead. `since` is when the chat reported it, so a click on a button the chat has
+// since replaced does nothing.
 public struct AnswerButton: Equatable, Sendable {
     public let label: String
     public let action: String?
-    public init(label: String, action: String? = nil) {
+    public let reply: String?
+    public let since: Double
+    public init(label: String, action: String? = nil, reply: String? = nil, since: Double = 0) {
         self.label = label
         self.action = action
+        self.reply = reply
+        self.since = since
     }
 }
 
@@ -134,4 +141,36 @@ public func buttonMatches(_ text: String, _ button: AnswerButton) -> Bool {
     let wanted = button.label.lowercased()
     guard !shown.isEmpty, !shown.hasPrefix("more options") else { return false }
     return button.action == nil ? shown == wanted : shown.hasPrefix(wanted)
+}
+
+// The one button drawn on an orange chat whose only open item is the person's OK for one step the chat itself will do.
+// The chat names that step in chat_status's `go_ahead` (the board never guesses it from the sentence). Shown only when
+// the orange line comes from that same report: nothing waiting on a card, no question, not working, not done.
+// Mo, 2026-11-17: "A lot of orange chats have just like a go ahead that you're waiting for ... add that kind of
+// flexible button for orange chats."
+public func goAheadButtons(_ row: [String: Any]?, now: Double = Date().timeIntervalSince1970 * 1000) -> [AnswerButton] {
+    guard let row, describe(row, now: now).0 == .yourMove,
+          let verdict = row["verdict"] as? [String: Any], number(verdict["at"]) >= number(row["userAt"]),
+          verdict["isDone"] as? Bool != true else { return [] }
+    let step = (verdict["goAhead"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !step.isEmpty else { return [] }
+    return [AnswerButton(label: "Go ahead: " + step, reply: "Go ahead: " + step, since: number(verdict["at"]))]
+}
+
+// The buttons a chat's row carries: its end-of-turn question's, else an orange chat's go-ahead.
+public func rowButtons(_ row: [String: Any]?, now: Double = Date().timeIntervalSince1970 * 1000) -> [AnswerButton] {
+    let asked = answerButtons(row, now: now)
+    return asked.isEmpty ? goAheadButtons(row, now: now) : asked
+}
+
+// Whether `localId` is the chat open in Claude: Claude stamps lastFocusedAt on a chat's record when it is brought to
+// the front, so the open one carries the newest stamp. Read from the records on disk at the moment of asking.
+public func isFrontChat(_ localId: String, records: [[String: Any]]) -> Bool {
+    guard let front = records.max(by: { number($0["lastFocusedAt"]) < number($1["lastFocusedAt"]) }) else { return false }
+    return front["sessionId"] as? String == localId
+}
+
+// Whether the chat still offers this exact button: same go-ahead, from the same report, nothing written since.
+public func stillOffered(_ button: AnswerButton, row: [String: Any]?, now: Double = Date().timeIntervalSince1970 * 1000) -> Bool {
+    rowButtons(row, now: now).contains(button)
 }

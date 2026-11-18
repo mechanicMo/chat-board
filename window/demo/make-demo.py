@@ -19,6 +19,8 @@ chats = [
     ("[client] dog groomer - add booking reminders", "working", "", 0, False, None, 0),
     ("[biz] blog - draft the launch post", "your_move",
      "Left: you pick which of the two openings to keep.", 14, True, None, 0),
+    ("[client] bakery site - new menu page", "your_move",
+     "Left: you OK the merge, then I put the menu page live.", 9, True, None, 0),
     ("[side] recipe app - add search", "question",
      "Should search match ingredients too, or only titles?", 21, False, None, 0),
     ("[client] yoga studio - class schedule bug", "ready",
@@ -40,6 +42,9 @@ chats = [
 # The end-of-turn box's buttons for some questions. A question with one or two shows them on the board;
 # the recipe app's search question has none, so it stays a plain line.
 buttons = {0: [{"action": None, "label": "Replace it"}, {"action": None, "label": "Sit above it"}]}
+
+# An orange chat whose only open item is a go-ahead names the step, and the board draws one button for it.
+go_aheads = {"[client] bakery site - new menu page": "merge and put it live"}
 
 records = os.path.join(root, "records", "demo")
 rows = os.path.join(root, "share", "rows")
@@ -68,6 +73,8 @@ for i, (title, kind, line, ago, unread, parent, focused) in enumerate(chats):
         row["verdict"] = {"at": finished, "isDone": True, "left": line}
     elif kind == "your_move":
         row["verdict"] = {"at": finished, "isDone": False, "left": line.removeprefix("Left: ")}
+        if title in go_aheads:
+            row["verdict"]["goAhead"] = go_aheads[title]
     json.dump(record, open(os.path.join(records, local + ".json"), "w"))
     json.dump(row, open(os.path.join(rows, cli + ".json"), "w"))
 

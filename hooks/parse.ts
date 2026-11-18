@@ -93,6 +93,7 @@ At the end of every turn of the main conversation (never in a subagent), call th
 - is_done: true only when this chat's purpose is complete and the user could close it now with nothing lost: the main task is finished and verified, nothing waits on the user or anyone else, and no follow-up belongs in this chat. Otherwise false. Never call a chat done because this turn's step finished.
 - left: if not done, what still has to happen and who does it, in one short sentence. If done, what was finished, in one short sentence.
 - purpose: why this chat exists, in one short sentence. Keep it steady unless the goal changed.
+- go_ahead: only when the one thing left is the user's OK for you to do one named step yourself, in this chat (merge, send, publish, run it): that step in 1-5 words, like "merge the branch". The board shows it as a button that replies "Go ahead: <step>". Leave it out when the user has to do something themselves, has to choose between options, or when you already asked in wrap_up.
 
 Use plain words.`
 

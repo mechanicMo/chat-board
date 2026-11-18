@@ -26,7 +26,7 @@ struct ChatRow: View {
     var editText: Binding<String>? = nil
     var onCommit: () -> Void = {}
     var onCancel: () -> Void = {}
-    // The question's one or two buttons, drawn side by side under the line. Empty for low priority chats.
+    // The question's one or two buttons, or an orange chat's go-ahead, drawn side by side under the line. Empty for low priority chats.
     var buttons: [AnswerButton] = []
     @State private var isHovered = false
 
@@ -113,7 +113,8 @@ struct AnswerButtonView: View {
                     .fill(isCurrent ? Color.white : color.opacity(isHovered ? 1 : 0.85))
             )
             .onHover { isHovered = $0 }
-            .help(button.action == nil ? "Answers \"\(button.label)\" in the chat" : "Presses \(button.label) in the chat")
+            .help(button.reply.map { "Sends \"\($0)\" to the chat" }
+                ?? (button.action == nil ? "Answers \"\(button.label)\" in the chat" : "Presses \(button.label) in the chat"))
     }
 }
 

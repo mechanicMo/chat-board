@@ -14,7 +14,7 @@ public struct Chat: Identifiable, Equatable, Sendable {
     public var depth = 0               // 1 when drawn under its parent
     public let folder: String          // the last part of the folder the chat runs in, for matching it to a project
     public var nameIsPersons = false   // the person typed this name in Claude's own sidebar, so only Claude's menu can replace it
-    public var buttons: [AnswerButton] = []  // the end-of-turn box's one or two buttons, drawn on the board
+    public var buttons: [AnswerButton] = []  // the end-of-turn box's one or two buttons, or an orange chat's go-ahead, drawn on the board
 
     public init(id: String, localId: String, title: String, kind: Kind, line: String, activeAt: Double,
                 focusedAt: Double, parentLocalId: String? = nil, finishedAt: Double = 0, viewedAt: Double = 0,
@@ -67,7 +67,7 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         finishedAt: max(number(row?["repliedAt"]), number(record["lastTurnEdgeAt"])),
         viewedAt: number(record["lastFocusedAt"]),
         folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""
-    ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: answerButtons(row, now: now))
+    ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: rowButtons(row, now: now))
 }
 
 extension Chat {

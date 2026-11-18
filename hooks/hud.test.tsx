@@ -568,6 +568,32 @@ test('each chat writes its status to the shared file the Chat Board window reads
   expect(shared.localId).toBe('local_abc')
 })
 
+// Mo, 2026-11-17: an orange chat waiting only on a go-ahead names that step, so the board can draw a button for it.
+test('a go-ahead the chat names reaches the shared file, and a done chat drops it', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const { files } = engine(on, answered)
+  const shared = () => JSON.parse(files.get('/Users/alex/.claude/chat-hud/rows/session-a.json')!.text)
+
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'Mo to OK the merge.', purpose: 'p', go_ahead: '  merge   the branch ' } as any)
+  await $.turn.complete(finish as any)
+  await clock.settle()
+  expect(shared().verdict.goAhead).toBe('merge the branch')
+
+  await $.turn.start(message as any)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: true, left: 'Merged.', purpose: 'p', go_ahead: 'merge the branch' } as any)
+  await $.turn.complete(finish as any)
+  await clock.settle()
+  expect(shared().verdict.goAhead).toBeUndefined()
+
+  await $.turn.start(message as any)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'You review it.', purpose: 'p' } as any)
+  await $.turn.complete(finish as any)
+  await clock.settle()
+  expect(shared().verdict.goAhead).toBeUndefined()
+})
+
 test('a chat that starts up keeps the status already in its shared file', async ($, on) => {
   const clock = mock.clock(on, { now: 5000 })
   const { files, saved } = engine(on, answered)
