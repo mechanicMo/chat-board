@@ -950,7 +950,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // switch to can sit on top of it. It stays on screen behind them instead of hiding.
         panel.level = .normal
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Lives on one Space, the one Claude is on, and moves to the current Space only when it is brought
+        // forward (followClaude, toggle). Not .canJoinAllSpaces: that put the board on every Space, including
+        // another app's fullscreen Space, where it sat over a fullscreen browser video.
+        // .fullScreenAuxiliary still lets it sit beside Claude when Claude itself is fullscreen.
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.contentView = FirstClickHostingView(rootView: AnyView(BoardView(board: board).background(.regularMaterial)))
         let clickPanel = panel as! ClickThroughPanel
         clickPanel.onClick = { [weak board] point in board?.click(at: point) ?? false }
