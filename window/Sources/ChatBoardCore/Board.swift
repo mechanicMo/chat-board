@@ -15,12 +15,26 @@ public enum Board {
         let present = Set(list.map(\.localId))
         let isChild = { (chat: Chat) in chat.parentLocalId.map { present.contains($0) && $0 != chat.localId } ?? false }
         var result: [Chat] = []
-        for parent in sorted(list.filter { !isChild($0) }) {
-            result.append(parent)
+        var shown = Set<String>()
+        // Every descendant goes under its top chat, not just direct children: a side session started from a
+        // side session (a grandchild) was dropped from the board entirely. All descendants draw at depth 1.
+        func addDescendants(of parent: Chat) {
             for var child in sorted(list.filter { isChild($0) && $0.parentLocalId == parent.localId }) {
+                guard shown.insert(child.id).inserted else { continue }
                 child.depth = 1
                 result.append(child)
+                addDescendants(of: child)
             }
+        }
+        for parent in sorted(list.filter { !isChild($0) }) {
+            guard shown.insert(parent.id).inserted else { continue }
+            result.append(parent)
+            addDescendants(of: parent)
+        }
+        // Chats whose parents point at each other in a loop have no top chat; show them on their own.
+        for chat in sorted(list.filter { !shown.contains($0.id) }) {
+            shown.insert(chat.id)
+            result.append(chat)
         }
         return result
     }

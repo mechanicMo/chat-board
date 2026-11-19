@@ -36,17 +36,33 @@ public enum Tree {
         chats.reduce(into: [:]) { $0[$1.kind, default: 0] += 1 }
     }
 
-    // Side sessions of open parents, newest first, keyed by the parent's local id.
+    // Side sessions of open parents, keyed by the local id of their top chat (the first one with no open parent).
+    // A side session started from a side session sits under the same top chat, right after its own parent, so a
+    // grandchild is never filed under a chat that is itself drawn as a child (it used to vanish that way).
     public static func children(of chats: [Chat]) -> [String: [Chat]] {
         let localIds = Set(chats.map(\.localId))
-        var map: [String: [Chat]] = [:]
+        var direct: [String: [Chat]] = [:]
         for chat in chats {
             guard let parent = chat.parentLocalId, parent != chat.localId, localIds.contains(parent) else { continue }
-            var child = chat
-            child.depth = 1
-            map[parent, default: []].append(child)
+            direct[parent, default: []].append(chat)
         }
-        return map.mapValues { $0.sorted { $0.activeAt > $1.activeAt } }
+        let isChild = { (chat: Chat) in chat.parentLocalId.map { $0 != chat.localId && localIds.contains($0) } ?? false }
+        var map: [String: [Chat]] = [:]
+        var seen = Set<String>()
+        func collect(_ localId: String, into list: inout [Chat]) {
+            for var child in (direct[localId] ?? []).sorted(by: { $0.activeAt > $1.activeAt }) {
+                guard seen.insert(child.id).inserted else { continue }
+                child.depth = 1
+                list.append(child)
+                collect(child.localId, into: &list)
+            }
+        }
+        for top in chats where !isChild(top) {
+            var list: [Chat] = []
+            collect(top.localId, into: &list)
+            if !list.isEmpty { map[top.localId] = list }
+        }
+        return map
     }
 
     public static func card(_ group: ProjectGroup, chats: [String: Chat], children: [String: [Chat]]) -> Card? {

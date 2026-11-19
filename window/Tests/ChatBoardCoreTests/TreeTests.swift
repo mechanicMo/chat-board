@@ -16,6 +16,21 @@ private func chat(_ id: String, _ kind: Kind = .yourMove, parent: String? = nil)
     static let chats = [chat("loose"), chat("solo", .ready), chat("a", .working), chat("b", .question),
                         chat("c", .ready), chat("kid", .working, parent: "a")]
 
+    // A side session started from a side session used to vanish: it was filed under its own parent, which is
+    // itself drawn as a child, so nothing ever drew it.
+    @Test func aGrandchildIsDrawnUnderItsTopChat() {
+        let layout = BoardLayout(top: [.chat("top")], sections: [:], groups: [:])
+        let chats = [chat("top"), chat("kid", parent: "top"), chat("grandkid", parent: "kid")]
+        let tree = Tree.build(layout, chats: chats)
+        guard tree.count == 1, case .entry(.chat(let top, let children)) = tree[0] else {
+            Issue.record("unexpected shape: \(tree)")
+            return
+        }
+        #expect(top.id == "top")
+        #expect(children.map(\.id) == ["kid", "grandkid"])
+        #expect(children.map(\.depth) == [1, 1])
+    }
+
     @Test func skipsClosedChatsAndEmptySections() {
         let tree = Tree.build(Self.layout, chats: Self.chats)
         #expect(tree.count == 2)

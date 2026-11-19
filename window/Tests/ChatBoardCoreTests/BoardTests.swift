@@ -16,6 +16,20 @@ private func make(_ id: String, activeAt: Double = 0, parent: String? = nil, kin
         #expect(arranged.map(\.depth) == [0, 0, 1])
     }
 
+    // A side session started from a side session used to vanish from the board.
+    @Test func grandchildSitsUnderItsTopChat() {
+        let list = [make("grandkid", activeAt: 90, parent: "kid"), make("kid", activeAt: 50, parent: "mom"),
+                    make("other", activeAt: 40), make("mom", activeAt: 10)]
+        let arranged = Board.arrange(list, order: ["other", "mom"])
+        #expect(arranged.map(\.id) == ["other", "mom", "kid", "grandkid"])
+        #expect(arranged.map(\.depth) == [0, 0, 1, 1])
+    }
+
+    @Test func parentsInALoopStillShow() {
+        let arranged = Board.arrange([make("a", parent: "b"), make("b", parent: "a")], order: [])
+        #expect(Set(arranged.map(\.id)) == ["a", "b"])
+    }
+
     @Test func orphanChildStandsAlone() {
         let arranged = Board.arrange([make("kid", parent: "gone"), make("a")], order: ["a", "kid"])
         #expect(arranged.map(\.id) == ["a", "kid"])
