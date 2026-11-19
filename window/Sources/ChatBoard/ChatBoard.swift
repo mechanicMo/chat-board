@@ -1039,6 +1039,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated { self?.followClaude(app) }
         }
+        // Swiping from another app's fullscreen Space back to Claude makes Claude active mid-animation, before the
+        // Space has switched, so the board was ordered onto the old Space. Bring it forward again once the switch lands.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followClaude(NSWorkspace.shared.frontmostApplication) }
+        }
         // The board leaves only when Claude does: hidden with Cmd+H or quit. It comes back when Claude is shown again.
         for name in [NSWorkspace.didHideApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
