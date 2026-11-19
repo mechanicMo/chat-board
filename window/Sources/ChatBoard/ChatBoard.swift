@@ -40,6 +40,17 @@ struct ChatRow: View {
                     if let editText {
                         TitleField(text: editText, size: 16 * scale, onCommit: onCommit, onCancel: onCancel)
                     } else {
+                        if chat.routineId != nil {
+                            // A run of a scheduled routine, which Claude keeps out of its own chat list.
+                            Text("ROUTINE")
+                                .font(.system(size: 10 * scale, weight: .bold))
+                                .foregroundStyle(isCurrent ? chat.kind.color : Color.white)
+                                .padding(.horizontal, 5 * scale)
+                                .padding(.vertical, 1.5 * scale)
+                                .background(Capsule().fill(isCurrent ? Color.white : Color.purple.opacity(0.8)))
+                                .fixedSize()
+                                .help("Started by the \(chat.routineId ?? "") routine")
+                        }
                         // Up to two lines, so a narrow window still shows enough of the title to recognize it.
                         Text(displayTitle ?? chat.title)
                             .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))

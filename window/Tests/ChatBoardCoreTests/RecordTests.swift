@@ -27,8 +27,14 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(chat(record: record(["isArchived": true]), row: nil, privateFolders: []) == nil)
     }
 
-    @Test func scheduledRoutineRunIsHidden() {
-        #expect(chat(record: record(["scheduledTaskId": "task-1"]), row: nil, privateFolders: []) == nil)
+    @Test func scheduledRoutineRunIsListedAndMarked() throws {
+        let run = try #require(chat(record: record(["scheduledTaskId": "task-1"]), row: nil, privateFolders: []))
+        #expect(run.routineId == "task-1")
+        #expect(try #require(chat(record: record(), row: nil, privateFolders: [])).routineId == nil)
+    }
+
+    @Test func anArchivedRoutineRunIsStillHidden() {
+        #expect(chat(record: record(["scheduledTaskId": "task-1", "isArchived": true]), row: nil, privateFolders: []) == nil)
     }
 
     @Test func switchedOffRowIsHidden() {

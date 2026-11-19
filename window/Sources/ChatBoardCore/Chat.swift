@@ -15,6 +15,7 @@ public struct Chat: Identifiable, Equatable, Sendable {
     public let folder: String          // the last part of the folder the chat runs in, for matching it to a project
     public var nameIsPersons = false   // the person typed this name in Claude's own sidebar, so only Claude's menu can replace it
     public var buttons: [AnswerButton] = []  // the end-of-turn box's one or two buttons, or an orange chat's go-ahead, drawn on the board
+    public var routineId: String? = nil      // set for a run of a scheduled routine, which the board labels so it isn't mistaken for a chat Mo opened
 
     public init(id: String, localId: String, title: String, kind: Kind, line: String, activeAt: Double,
                 focusedAt: Double, parentLocalId: String? = nil, finishedAt: Double = 0, viewedAt: Double = 0,
@@ -47,8 +48,8 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
     guard record["isArchived"] as? Bool != true,
           let id = record["cliSessionId"] as? String,
           let localId = record["sessionId"] as? String else { return nil }
-    // Runs of a scheduled routine live in the app's Routines section, not in the chat list.
-    if record["scheduledTaskId"] is String { return nil }
+    // Runs of a scheduled routine are listed too, with a label: Claude files them under Routines, away from the chat
+    // list, so without the board they go unseen (Mo, 2026-11-19).
     if isPrivate(cwd: record["cwd"] as? String ?? "", privateFolders: privateFolders) { return nil }
     // The person switched the mod off in this chat.
     if row?["isOff"] as? Bool == true { return nil }
@@ -67,14 +68,16 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         finishedAt: max(number(row?["repliedAt"]), number(record["lastTurnEdgeAt"])),
         viewedAt: number(record["lastFocusedAt"]),
         folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""
-    ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: rowButtons(row, now: now))
+    ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: rowButtons(row, now: now),
+           routineId: (record["scheduledTaskId"] as? String).flatMap { $0.isEmpty ? nil : $0 })
 }
 
 extension Chat {
-    func with(nameIsPersons: Bool, buttons: [AnswerButton] = []) -> Chat {
+    func with(nameIsPersons: Bool, buttons: [AnswerButton] = [], routineId: String? = nil) -> Chat {
         var copy = self
         copy.nameIsPersons = nameIsPersons
         copy.buttons = buttons
+        copy.routineId = routineId
         return copy
     }
 }
