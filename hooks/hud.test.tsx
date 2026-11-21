@@ -30,7 +30,8 @@ const COMPOSE = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surf
 const RECORD = '/Users/alex/Library/Application Support/Claude/claude-code-sessions/a/b/local_abc.json'
 
 // Stand-ins for the engine: a store we can read back, the model, the app's chat record and `open`.
-const engine = (on: any, reply: unknown, cwd = '/Users/alex/projects') => {
+// `missedSearches`: how many record searches come up empty first, as when the app hasn't yet written the chat's id.
+const engine = (on: any, reply: unknown, cwd = '/Users/alex/projects', missedSearches = 0) => {
   const saved = new Map<string, unknown>()
   const calls: string[] = []
   const opened: string[][] = []
@@ -54,7 +55,8 @@ const engine = (on: any, reply: unknown, cwd = '/Users/alex/projects') => {
   on('env.get', (_: unknown, e: any) => ({ value: e.name === 'HOME' ? '/Users/alex' : undefined }))
   on('process.run', (_: unknown, e: any) => {
     opened.push([...e.argv])
-    return { value: { exitCode: 0, stdout: e.argv[0] === 'grep' ? RECORD + '\n' : '', stderr: '' } }
+    const isFound = e.argv[0] === 'grep' && missedSearches-- <= 0
+    return { value: { exitCode: 0, stdout: isFound ? RECORD + '\n' : '', stderr: '' } }
   })
   // The shared board files other chats write, kept in memory.
   const files = new Map<string, { text: string; mtimeMs: number }>()
@@ -761,4 +763,48 @@ test('the chat can name its background work; a subagent stop and a stop with no 
   await stop($, [], 'sub-1')
   await stop($, undefined)
   expect(shared().background.items).toEqual([{ type: 'shell', label: 'Run the backup on the Mini' }])
+})
+
+test('a chat whose record is found only after it started still learns its own id at the next turn end', async ($, on) => {
+  const clock = mock.clock(on, { now: 1793900000000 })
+  const { files } = engine(on, answered, '/Users/alex/projects', 1)
+  const shared = () => JSON.parse(files.get('/Users/alex/.claude/chat-hud/rows/session-a.json')!.text)
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await $.turn.complete(finish as any)
+  expect(shared().localId ?? null).toBe(null)
+  await clock.advance(61000)
+  await $.turn.start(message as any)
+  await $.turn.complete(finish as any)
+  expect(shared().localId).toBe('local_abc')
+})
+
+test('a detach request names the chats by session id too, so a chat that hasn\'t found its record still carries it out', async ($, on) => {
+  const clock = mock.clock(on, { now: 1793900000000 })
+  const { files } = engine(on, answered, '/Users/alex/projects', 1000)
+  const calls: string[] = []
+  on('mcp.call', (_: unknown, e: any) => {
+    calls.push(JSON.stringify(e))
+    return { value: { content: [{ type: 'text', text: 'Detached.' }], isError: false } }
+  })
+  const request = (localId: string, extra: object) =>
+    files.set(`/Users/alex/.claude/chat-hud/requests/detach-${localId}.json`, {
+      text: JSON.stringify({ type: 'detach', localId, parentLocalId: 'local_mom', title: 'Side chat', at: 1793900000000, ...extra }),
+      mtimeMs: 1,
+    })
+  request('local_me', { sessionId: 'session-a', parentSessionId: 'session-mom' })      // this chat is the child
+  request('local_kid', { sessionId: 'session-kid', parentSessionId: 'session-a' })     // this chat is the parent
+  request('local_other', { sessionId: 'session-x', parentSessionId: 'session-y' })     // neither
+  request('local_old', {})                                                              // an older board: ids only
+
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await clock.advance(6000)
+  await clock.settle()
+  await clock.advance(6000)
+  await clock.settle()
+
+  expect(calls.length).toBe(2)
+  expect(calls.some(one => one.includes('"session_id":"self"'))).toBe(true)
+  expect(calls.some(one => one.includes('"session_id":"local_kid"'))).toBe(true)
+  expect(files.get('/Users/alex/.claude/chat-hud/requests/detach-local_other.result.json')).toBeUndefined()
 })

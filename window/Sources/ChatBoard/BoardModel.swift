@@ -57,7 +57,7 @@ final class BoardModel: ObservableObject {
     @Published private(set) var openGroupId: String?
     private(set) var layout = BoardLayout()
     private var layoutLoaded = false
-    let notice = Notice()
+    let notice = Notice(logPath: shareDir + "/board.log")
 
     private var recordCache: [String: (mtime: Double, record: [String: Any])] = [:]
     private var rowCache: [String: (mtime: Double, row: [String: Any])] = [:]
@@ -584,7 +584,9 @@ final class BoardModel: ObservableObject {
         guard let parent = chat.parentLocalId else { return }
         let dir = shareDir + "/requests"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let request = DetachRequest(localId: chat.localId, parentLocalId: parent, title: chat.title)
+        // Session ids too: a chat's mod always knows its own, but only learns the app's id once it finds its record.
+        let request = DetachRequest(localId: chat.localId, parentLocalId: parent, title: chat.title,
+                                    sessionId: chat.id, parentSessionId: chats.first(where: { $0.localId == parent })?.id)
         if let data = request.data() {
             FileManager.default.createFile(atPath: "\(dir)/\(request.fileName)", contents: data)
         }

@@ -122,6 +122,27 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(parsed["type"] as? String == "detach")
         #expect(parsed["localId"] as? String == "local_kid")
         #expect(parsed["parentLocalId"] as? String == "local_mom")
+        #expect(parsed["sessionId"] == nil)
+    }
+
+    @Test func aDetachRequestAlsoNamesBothChatsBySessionId() throws {
+        let request = DetachRequest(localId: "local_kid", parentLocalId: "local_mom", title: "Side",
+                                    sessionId: "kid-cli", parentSessionId: "mom-cli", at: 5)
+        let data = try #require(request.data())
+        let parsed = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(parsed["sessionId"] as? String == "kid-cli")
+        #expect(parsed["parentSessionId"] as? String == "mom-cli")
+    }
+
+    @Test func boardMessagesAreLoggedWithTheirTime() throws {
+        let path = NSTemporaryDirectory() + "board-log-\(UUID().uuidString).log"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        Notice.append("Moving Side to top level...", to: path, at: Date(timeIntervalSince1970: 0))
+        Notice.append("Couldn't move Side:\nopen it", to: path, at: Date(timeIntervalSince1970: 60))
+        let lines = try String(contentsOfFile: path, encoding: .utf8).split(separator: "\n")
+        #expect(lines.count == 2)
+        #expect(lines[0].hasSuffix("  Moving Side to top level..."))
+        #expect(lines[1].hasSuffix("  Couldn't move Side: open it"))
     }
 
     @Test func requestCarriesAFreshLongTokenAndTheRightFileName() throws {

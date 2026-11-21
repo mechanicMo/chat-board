@@ -28,7 +28,10 @@ const COLORS = {
 
 let latestRun = 0
 let recordPath: string | null = null
-let isRecordSearched = false
+// When the record search last came up empty. The app writes the chat's session id into its record a moment after the
+// chat starts, so a search at startup can miss it; it is tried again, at most once a minute, until it's found.
+let recordMissedAt: number | null = null
+const RECORD_RETRY_MS = 60000
 let privateFolders: string[] | null = null
 let usageQueue: Promise<void> = Promise.resolve()
 // The chat's permission mode as the classic hooks last reported it; null until one has.
@@ -121,13 +124,16 @@ const saveRow = async ($: EngineInterface, change: (current: HudRow) => HudRow) 
 const readChatRecord = async ($: EngineInterface): Promise<{ localId: string; title: string | null } | null> => {
   try {
     if (!recordPath) {
-      if (isRecordSearched) return null
-      isRecordSearched = true
+      const now = await $.clock.now()
+      if (recordMissedAt !== null && now - recordMissedAt < RECORD_RETRY_MS) return null
       const home = await $.env.get('HOME')
       if (!home) return null
       const found = await $.process.run(['grep', '-rlF', '--include=local_*.json', await $.session.id(), home + SESSIONS])
       recordPath = found.stdout.split('\n').find(line => line.trim() !== '')?.trim() ?? null
-      if (!recordPath) return null
+      if (!recordPath) {
+        recordMissedAt = now
+        return null
+      }
     }
     const record = JSON.parse(await $.fs.read(recordPath)) as { sessionId?: unknown; title?: unknown }
     if (typeof record.sessionId !== 'string') return null
@@ -236,10 +242,15 @@ const rename = async ($: EngineInterface, localId: string, name: string, title: 
 }
 
 // Which session id this chat passes to detach a request's chat, or null when it is neither the child nor its parent.
-export const detachTarget = (mine: string | undefined, localId: string, parentLocalId: unknown): string | null => {
-  if (!mine) return null
-  if (mine === localId) return 'self'
-  if (typeof parentLocalId === 'string' && mine === parentLocalId) return localId
+// The board names both chats by the app's id and by their session id; the session id is always known here, while the
+// app's id is only known once this chat's record has been found.
+export const detachTarget = (
+  mine: { localId?: string | null; sessionId: string },
+  localId: string,
+  request: { parentLocalId?: unknown; sessionId?: unknown; parentSessionId?: unknown },
+): string | null => {
+  if (request.sessionId === mine.sessionId || (mine.localId && mine.localId === localId)) return 'self'
+  if (request.parentSessionId === mine.sessionId || (mine.localId && mine.localId === request.parentLocalId)) return localId
   return null
 }
 
@@ -263,9 +274,9 @@ const handleRequests = async ($: EngineInterface) => {
       const base = dir + '/requests/detach-' + localId
       if (names.includes(`detach-${localId}.result.json`) || names.includes(`detach-${localId}.claimed`)) continue
       try {
-        const request = JSON.parse(await $.fs.read(base + '.json')) as { at?: unknown; title?: unknown; parentLocalId?: unknown }
+        const request = JSON.parse(await $.fs.read(base + '.json')) as { at?: unknown; title?: unknown; parentLocalId?: unknown; sessionId?: unknown; parentSessionId?: unknown }
         if (typeof request.at !== 'number' || (await $.clock.now()) - request.at > TOKEN_LIFE) continue
-        const target = detachTarget(mine, localId, request.parentLocalId)
+        const target = detachTarget({ localId: mine, sessionId: self }, localId, request)
         if (!target) continue
         await $.fs.write(base + '.claimed', self)
         if ((await $.fs.read(base + '.claimed')) !== self) continue

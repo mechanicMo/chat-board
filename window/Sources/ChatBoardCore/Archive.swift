@@ -38,11 +38,17 @@ public struct DetachRequest {
     public let parentLocalId: String
     public let title: String
     public let at: Double
+    // The two chats' session ids, which each chat's mod knows from the start.
+    public let sessionId: String?
+    public let parentSessionId: String?
 
-    public init(localId: String, parentLocalId: String, title: String, at: Double = Date().timeIntervalSince1970 * 1000) {
+    public init(localId: String, parentLocalId: String, title: String, sessionId: String? = nil, parentSessionId: String? = nil,
+                at: Double = Date().timeIntervalSince1970 * 1000) {
         self.localId = localId
         self.parentLocalId = parentLocalId
         self.title = title
+        self.sessionId = sessionId
+        self.parentSessionId = parentSessionId
         self.at = at
     }
 
@@ -53,7 +59,10 @@ public struct DetachRequest {
     }
 
     public var json: [String: Any] {
-        ["type": "detach", "localId": localId, "parentLocalId": parentLocalId, "title": title, "at": at]
+        var json: [String: Any] = ["type": "detach", "localId": localId, "parentLocalId": parentLocalId, "title": title, "at": at]
+        if let sessionId { json["sessionId"] = sessionId }
+        if let parentSessionId { json["parentSessionId"] = parentSessionId }
+        return json
     }
 
     public func data() -> Data? { try? JSONSerialization.data(withJSONObject: json) }
