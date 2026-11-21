@@ -27,13 +27,17 @@ export type HudRow = {
   turnEnd?: { ask: string | null; recap: string | null; actions?: HudAction[]; at: number } | null
   // The chat's own answer to "is this chat's purpose done?", given at the end of each turn.
   // `goAhead` is the one step the chat waits on the person's OK for, drawn as a button on Chat Board.
-  verdict?: { isDone: boolean; left: string; purpose: string; goAhead?: string; at: number } | null
+  // `background` is the chat's own words for what it left running, used only as the label of `row.background`.
+  verdict?: { isDone: boolean; left: string; purpose: string; goAhead?: string; background?: string; at: number } | null
   // A question written at the end of the chat's last reply, and when that reply ended.
   textQuestion?: { text: string; at: number } | null
   // A tool call still running. A card waiting on the person (permission, rename, a question) holds the call open,
   // so a call that is normally quick being pending for a while means the chat is waiting for the person's OK.
   // `asked` is set when the permission check put the call to a person.
   pending?: { tool: string; at: number; asked: boolean } | null
+  // Work the chat left running when its turn ended (a background shell, subagent, workflow, monitor), from the
+  // engine's own list at Stop. Each item wakes the chat when it ends. `at` is when the list was read.
+  background?: { items: { type: string; label: string }[]; at: number } | null
 }
 
 // One button in the end-of-turn box: an app action (commit, create_pr, ...) or a reply that sends its label.

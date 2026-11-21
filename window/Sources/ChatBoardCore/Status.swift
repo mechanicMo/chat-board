@@ -65,6 +65,23 @@ public func waitingOn(_ pending: [String: Any]?, now: Double) -> String? {
     return age > 20000 ? name : nil
 }
 
+// How long work left running keeps a chat grey. Mirrors the mod's BACKGROUND_STALE_MS: its end starts a new turn
+// that rewrites the list, so a list this old means that turn never came (a lost notification, a quit app).
+public let backgroundStaleMs: Double = 3 * 60 * 60000
+
+// What the chat left running when its last turn ended, as one line. Mirrors the mod's `runningInBackground`.
+public func runningInBackground(_ row: [String: Any], now: Double) -> String? {
+    guard let running = row["background"] as? [String: Any],
+          let items = running["items"] as? [[String: Any]], let first = items.first else { return nil }
+    let at = number(running["at"])
+    let since = number(row["userAt"])
+    guard at >= since, now - at <= backgroundStaleMs else { return nil }
+    if let verdict = row["verdict"] as? [String: Any], number(verdict["at"]) >= since,
+       let named = verdict["background"] as? String, !named.isEmpty { return named }
+    let more = items.count - 1
+    return (first["label"] as? String ?? "") + (more > 0 ? " (+\(more) more)" : "")
+}
+
 // What a chat says, from the freshest thing it reported since the person last wrote. Mirrors the mod's `describe`.
 public func describe(_ row: [String: Any]?, now: Double = Date().timeIntervalSince1970 * 1000) -> (Kind, String) {
     guard let row else { return (.yourMove, "") }
@@ -78,6 +95,8 @@ public func describe(_ row: [String: Any]?, now: Double = Date().timeIntervalSin
     if let written = row["textQuestion"] as? [String: Any], number(written["at"]) >= since, let text = written["text"] as? String {
         return (.question, text)
     }
+    // Work left running wakes the chat when it ends, so the chat still has the move, even if it called itself done.
+    if let background = runningInBackground(row, now: now) { return (.working, "Running in the background: " + background) }
     if let verdict, verdict["isDone"] as? Bool == true { return (.ready, verdict["left"] as? String ?? "") }
     if let verdict { return (.yourMove, "Left: " + (verdict["left"] as? String ?? "")) }
     if let summary = row["summary"] as? [String: Any], number(summary["updatedAt"]) >= since {

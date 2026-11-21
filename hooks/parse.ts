@@ -53,6 +53,30 @@ export const waitingOn = (pending: HudRow['pending'], now: number): string | nul
   return age > 20000 ? toolLabel(pending.tool) : null
 }
 
+// How long work left running keeps a chat grey. Its end starts a new turn that rewrites the list, so a list this old
+// means that turn never came (a lost notification, a quit app). Long enough for a slow build or a job on another Mac.
+export const BACKGROUND_STALE_MS = 3 * 60 * 60000
+
+// What the chat left running when its last turn ended, as one line, or null when nothing is (or the list is stale or
+// older than the person's last message). The chat's own words for it win over the engine's first task.
+export const runningInBackground = (row: HudRow, now: number): string | null => {
+  const running = row.background
+  if (!running || running.items.length === 0 || running.at < row.userAt || now - running.at > BACKGROUND_STALE_MS) return null
+  const named = row.verdict && row.verdict.at >= row.userAt ? row.verdict.background : undefined
+  if (named) return named
+  const more = running.items.length - 1
+  return running.items[0]!.label + (more > 0 ? ` (+${more} more)` : '')
+}
+
+// The engine's in-flight list at Stop, as the row keeps it. Scheduled wakeups (session_crons) are not here on
+// purpose: they aren't work running, and a chat looping every 30 minutes would never leave grey.
+export const backgroundItems = (tasks: readonly { type?: unknown; description?: unknown; command?: unknown; name?: unknown }[]) =>
+  tasks.map(task => {
+    const type = typeof task.type === 'string' ? task.type : 'task'
+    const label = [task.description, task.command, task.name].map(one => clean(one, 80)).find(Boolean) ?? type
+    return { type, label }
+  })
+
 // Whose move it is: the chat's (working), the person's, or nobody's because the chat is finished.
 // The line under it says why: what it's waiting on, the chat's question, what's left, or its recap.
 export const describe = (row: HudRow, now: number): { kind: HudKind; label: string; line: string } => {
@@ -67,6 +91,9 @@ export const describe = (row: HudRow, now: number): { kind: HudKind; label: stri
   if (end?.ask) return show('question', end.ask)
   const written = row.textQuestion && row.textQuestion.at >= since ? row.textQuestion : null
   if (written) return show('question', written.text)
+  // Work left running wakes the chat when it ends, so the chat still has the move, even if it called itself done.
+  const background = runningInBackground(row, now)
+  if (background) return show('working', 'Running in the background: ' + background)
   if (verdict?.isDone) return show('ready', verdict.left)
   if (verdict) return show('your_move', 'Left: ' + verdict.left)
   const summary = freshSummary(row)
@@ -94,6 +121,7 @@ At the end of every turn of the main conversation (never in a subagent), call th
 - left: if not done, what still has to happen and who does it, in one short sentence. If done, what was finished, in one short sentence.
 - purpose: why this chat exists, in one short sentence. Keep it steady unless the goal changed.
 - go_ahead: only when the one thing left is the user's OK for you to do one named step yourself, in this chat (merge, send, publish, run it): that step in 1-5 words, like "merge the branch". The board shows it as a button that replies "Go ahead: <step>". Leave it out when the user has to do something themselves, has to choose between options, or when you already asked in wrap_up.
+- background: only when you left work running in the background that will wake this chat when it ends: what it is, in 2-6 words, like "backup on the Mini". The board shows the chat as still working until it ends.
 
 Use plain words.`
 

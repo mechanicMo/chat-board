@@ -7,7 +7,7 @@ Chat Board fixes that. It's a window that sits to the left of the Claude app and
 - **Purple, question for you:** the chat asked you something, or it's waiting for you to OK a permission card.
 - **Orange, your move:** it finished a step and something is left for you.
 - **Green, ready to close:** the chat says its job is done and nothing is lost if you close it.
-- **Gray, working:** it's still going.
+- **Gray, working:** it's still going. That includes a chat whose turn ended with work left running in the background (a long command, a subagent, a workflow): the line says what's running, and the chat stays gray until that work finishes and the chat reports back. If no report comes within 3 hours, it goes back to orange.
 
 ![Chat Board with made-up chats](docs/board.png)
 
@@ -40,7 +40,7 @@ Right-click has the same moves: Move to, New group with, Rename group and Ungrou
 
 There are two pieces, because neither can do the whole job alone.
 
-**The mod (`hooks/`)** is a Claude Code mod that runs inside every chat. A mod can see one chat, but it can't put all of them in one list beside the app. At the end of each turn it asks the chat to report whether its purpose is done (a small `chat_status` tool call), records any question the chat asked, and notes when a tool call is held open by a card waiting for you. It writes that status to `~/.claude/chat-hud/rows/<session>.json`. It never calls a model on its own. The only cost is the small status instruction and tool each chat carries, covered under Costs.
+**The mod (`hooks/`)** is a Claude Code mod that runs inside every chat. A mod can see one chat, but it can't put all of them in one list beside the app. At the end of each turn it asks the chat to report whether its purpose is done (a small `chat_status` tool call), records any question the chat asked, notes when a tool call is held open by a card waiting for you, and reads Claude's own list of background work still running when a turn ends. It writes that status to `~/.claude/chat-hud/rows/<session>.json`. It never calls a model on its own. The only cost is the small status instruction and tool each chat carries, covered under Costs.
 
 **The app (`window/`)** is a small native Mac app in Swift. It reads those status files plus the Claude app's own chat list, and draws the board. It saves where everything sits in `~/.claude/chat-hud/layout.json`, so your order survives a restart. It uses the macOS Accessibility API to dock itself beside Claude and keep the two windows filling the screen.
 

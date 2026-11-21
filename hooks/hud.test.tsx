@@ -663,3 +663,102 @@ test('a question written at the end of a reply counts as a question, and a plain
   expect(await after.find({ type: 'Text', text: /Question for you/ })).toBeUndefined()
   await after.unmount()
 })
+
+// A turn's end as the engine reports it to the classic Stop hook, with the work it left running.
+const stop = ($: any, tasks: unknown[] | undefined, agent_id?: string) =>
+  $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false, ...(tasks ? { background_tasks: tasks } : {}), ...(agent_id ? { agent_id } : {}) } as any)
+const BACKUP = { id: 'b1', type: 'shell', status: 'running', description: 'Run the backup on the Mini', command: 'ssh mini ./backup.sh' }
+
+const bandLine = async ($: any) => {
+  const ui = await $.ui.mount(BAND)
+  const label = (await ui.find({ type: 'Text', text: /^ (Working|Your move|Question for you|Ready to close) $/ }))?.text.trim()
+  const line = await ui.find({ type: 'Text', text: /Running in the background|Left:|Replied at/ })
+  await ui.unmount()
+  return { label, line: line?.text ?? null }
+}
+
+test('a turn that ends with a background command stays working, and goes orange once the completion turn ends', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  engine(on, answered)
+  on('classic.Stop', () => ({}))
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+
+  await $.turn.start(message as any)
+  await clock.advance(1000)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'Wait for the backup.', purpose: 'p' } as any)
+  await stop($, [BACKUP])
+  await $.turn.complete(finish as any)
+  let shown = await bandLine($)
+  expect(shown.label).toBe('Working')
+  expect(shown.line).toContain('Running in the background: Run the backup on the Mini')
+
+  // The backup's notification starts a turn of its own; its Stop finds nothing running.
+  await clock.advance(60000)
+  await $.turn.start({ ...message, text: '<task-notification>backup done</task-notification>' } as any)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'You check the backup log.', purpose: 'p' } as any)
+  await stop($, [])
+  await $.turn.complete(finish as any)
+  shown = await bandLine($)
+  expect(shown.label).toBe('Your move')
+  expect(shown.line).toContain('Left: You check the backup log.')
+})
+
+test('an ordinary finished turn with nothing running stays orange', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  engine(on, answered)
+  on('classic.Stop', () => ({}))
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await clock.advance(1000)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'You review the draft.', purpose: 'p' } as any)
+  await stop($, [])
+  await $.turn.complete(finish as any)
+  expect((await bandLine($)).label).toBe('Your move')
+})
+
+test('a question still beats background work', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  engine(on, answered)
+  on('classic.Stop', () => ({}))
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await clock.advance(1000)
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Backup started.', ask: 'Delete the old backups too?' } as any)
+  await stop($, [BACKUP])
+  await $.turn.complete(finish as any)
+  expect((await bandLine($)).label).toBe('Question for you')
+})
+
+test('background work left over three hours with no completion turn goes back to orange', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  engine(on, answered)
+  on('classic.Stop', () => ({}))
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await clock.advance(1000)
+  await stop($, [BACKUP])
+  await $.turn.complete(finish as any)
+  await clock.advance(2 * 60 * 60000)
+  expect((await bandLine($)).label).toBe('Working')
+  await clock.advance(60 * 60000 + 1000)
+  expect((await bandLine($)).label).toBe('Your move')
+})
+
+test('the chat can name its background work; a subagent stop and a stop with no list change nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const { files } = engine(on, answered)
+  on('classic.Stop', () => ({}))
+  const shared = () => JSON.parse(files.get('/Users/alex/.claude/chat-hud/rows/session-a.json')!.text)
+  await $.session.start({ cwd: '/Users/alex/projects' } as any)
+  await $.turn.start(message as any)
+  await clock.advance(1000)
+  await $.tool.call({ tool: 'mcp__chat-hud__chat_status', is_done: false, left: 'Wait.', purpose: 'p', background: '  backup on   the Mini ' } as any)
+  await stop($, [BACKUP])
+  await $.turn.complete(finish as any)
+  expect(shared().verdict.background).toBe('backup on the Mini')
+  expect((await bandLine($)).line).toContain('Running in the background: backup on the Mini')
+
+  await stop($, [], 'sub-1')
+  await stop($, undefined)
+  expect(shared().background.items).toEqual([{ type: 'shell', label: 'Run the backup on the Mini' }])
+})

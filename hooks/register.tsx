@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { HudRow } from '../types'
-import { ageLabel, answerActions, boxShowsQuestion, buildPrompt, describe, freshSummary, parseReply, purposeOf, questionIn, STATUS_PROMPT, SYSTEM, toRow } from './parse'
+import { ageLabel, answerActions, backgroundItems, boxShowsQuestion, buildPrompt, describe, freshSummary, parseReply, purposeOf, questionIn, STATUS_PROMPT, SYSTEM, toRow } from './parse'
 
 const PREFIX = 'chat:'
 const USAGE = 'usage:'
@@ -350,6 +350,10 @@ export const register: Register = on => {
             type: 'string',
             description: "Only when the one thing left is the user's OK for you to do one named step in this chat: that step in 1-5 words (e.g. 'merge the branch', 'send the draft'). Leave it out otherwise.",
           },
+          background: {
+            type: 'string',
+            description: 'Only when you left work running in the background that will wake this chat when it ends (a background command, subagent or workflow): what it is, in 2-6 words. Leave it out otherwise.',
+          },
         },
         required: ['is_done', 'left', 'purpose'],
       },
@@ -428,6 +432,19 @@ export const register: Register = on => {
     if (e.permission_mode) permissionMode = e.permission_mode
     return next(e)
   })
+  // The engine's own list of work still running as the main turn ends (background shells, subagents, workflows,
+  // monitors). Each one's end starts a new turn, whose Stop rewrites the list, so nothing has to clear it.
+  on('classic.Stop', async ($, e, next) => {
+    const tasks = (e as { background_tasks?: unknown }).background_tasks
+    if (!e.agent_id && Array.isArray(tasks)) {
+      const at = await $.clock.now()
+      const items = backgroundItems(tasks)
+      await saveRow($, current =>
+        items.length === 0 && !current.background ? current : { ...current, background: items.length ? { items, at } : null },
+      ).catch(() => {})
+    }
+    return next(e)
+  })
   // A permission dialog actually put in front of the person: the one sure sign, whatever the mode.
   on('classic.Notification', async ($, e, next) => {
     if (e.permission_mode) permissionMode = e.permission_mode
@@ -444,12 +461,14 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__chat-hud__chat_status' }, async ($, e) => {
     // A tool call's arguments sit on the event itself, beside `tool`.
-    const input = e as unknown as { is_done?: unknown; left?: unknown; purpose?: unknown; go_ahead?: unknown }
+    const input = e as unknown as { is_done?: unknown; left?: unknown; purpose?: unknown; go_ahead?: unknown; background?: unknown }
     const text = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 240) : '')
     const isDone = input.is_done === true
     // The step a go-ahead button on the board would OK. Never kept on a done chat: there is nothing left to OK.
     const goAhead = isDone ? '' : text(input.go_ahead).slice(0, 48)
-    const verdict = { isDone, left: text(input.left), purpose: text(input.purpose), ...(goAhead ? { goAhead } : {}), at: await $.clock.now() }
+    // The chat's name for work it left running: only a label for the engine's own list, never a status by itself.
+    const background = text(input.background).slice(0, 60)
+    const verdict = { isDone, left: text(input.left), purpose: text(input.purpose), ...(goAhead ? { goAhead } : {}), ...(background ? { background } : {}), at: await $.clock.now() }
     await saveRow($, current => ({ ...current, verdict })).catch(() => {})
     return { result: 'Status recorded.' }
   })

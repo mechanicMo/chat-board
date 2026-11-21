@@ -83,6 +83,13 @@ import Testing
         #expect(rowButtons(row(goAhead: 5), now: 30).isEmpty)
     }
 
+    // A go-ahead can't be acted on while the chat's own background work is still running; it comes back once that ends.
+    @Test func backgroundWorkHidesTheGoAheadUntilItEnds() {
+        let running: [String: Any] = ["items": [["type": "shell", "label": "deploy"]], "at": 25]
+        #expect(rowButtons(row(extra: ["background": running]), now: 30).isEmpty)
+        #expect(rowButtons(row(extra: ["background": ["items": [], "at": 25]]), now: 30).count == 1)
+    }
+
     @Test func aDoneOrOldReportShowsNone() {
         #expect(rowButtons(row(isDone: true), now: 30).isEmpty)
         #expect(rowButtons(row(extra: ["userAt": 25]), now: 30).isEmpty)
