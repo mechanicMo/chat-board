@@ -59,10 +59,13 @@ export const BACKGROUND_STALE_MS = 3 * 60 * 60000
 
 // What the chat left running when its last turn ended, as one line, or null when nothing is (or the list is stale or
 // older than the person's last message). The chat's own words for it win over the engine's first task.
+// The chat's own label counts even when the engine's list is empty: a session it started, or a build on the Mini
+// that session runs, wakes the chat when it ends but never appears in the engine's list. Same staleness rule.
 export const runningInBackground = (row: HudRow, now: number): string | null => {
+  const verdict = row.verdict
+  const named = verdict && verdict.at >= row.userAt && now - verdict.at <= BACKGROUND_STALE_MS ? verdict.background : undefined
   const running = row.background
-  if (!running || running.items.length === 0 || running.at < row.userAt || now - running.at > BACKGROUND_STALE_MS) return null
-  const named = row.verdict && row.verdict.at >= row.userAt ? row.verdict.background : undefined
+  if (!running || running.items.length === 0 || running.at < row.userAt || now - running.at > BACKGROUND_STALE_MS) return named || null
   if (named) return named
   const more = running.items.length - 1
   return running.items[0]!.label + (more > 0 ? ` (+${more} more)` : '')

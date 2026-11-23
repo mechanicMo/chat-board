@@ -70,14 +70,18 @@ public func waitingOn(_ pending: [String: Any]?, now: Double) -> String? {
 public let backgroundStaleMs: Double = 3 * 60 * 60000
 
 // What the chat left running when its last turn ended, as one line. Mirrors the mod's `runningInBackground`.
+// The chat's own label counts even with an empty engine list: a session it started never appears in that list.
 public func runningInBackground(_ row: [String: Any], now: Double) -> String? {
-    guard let running = row["background"] as? [String: Any],
-          let items = running["items"] as? [[String: Any]], let first = items.first else { return nil }
-    let at = number(running["at"])
     let since = number(row["userAt"])
-    guard at >= since, now - at <= backgroundStaleMs else { return nil }
+    var named: String? = nil
     if let verdict = row["verdict"] as? [String: Any], number(verdict["at"]) >= since,
-       let named = verdict["background"] as? String, !named.isEmpty { return named }
+       now - number(verdict["at"]) <= backgroundStaleMs,
+       let label = verdict["background"] as? String, !label.isEmpty { named = label }
+    guard let running = row["background"] as? [String: Any],
+          let items = running["items"] as? [[String: Any]], let first = items.first else { return named }
+    let at = number(running["at"])
+    guard at >= since, now - at <= backgroundStaleMs else { return named }
+    if let named { return named }
     let more = items.count - 1
     return (first["label"] as? String ?? "") + (more > 0 ? " (+\(more) more)" : "")
 }
