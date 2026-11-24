@@ -43,8 +43,21 @@ public func isPrivate(cwd: String, privateFolders: [String]) -> Bool {
 
 // Builds the board's entry for one of the app's chat records and the mod's row for it,
 // or nil when the chat should not be listed.
+// When each archived chat was archived, in ms. Claude jumps to another chat by itself right after an archive.
+public func archiveTimes(_ records: [[String: Any]]) -> [Double] {
+    records.compactMap { $0["isArchived"] as? Bool == true ? ($0["archiveSetAtMs"] as? NSNumber)?.doubleValue : nil }
+}
+
+// When the person last looked at a chat. A focus stamped within 3 s after an archive is Claude's own jump to the
+// next chat, not the person reading it (measured 2026-11-24: 64 ms), so it keeps the last real view, `remembered`.
+public func viewedAt(focusedAt: Double, archives: [Double], remembered: Double?) -> Double {
+    let jumped = archives.contains { focusedAt >= $0 && focusedAt - $0 <= 3000 }
+    return jumped ? min(remembered ?? 0, focusedAt) : focusedAt
+}
+
 public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [String],
-                 now: Double = Date().timeIntervalSince1970 * 1000) -> Chat? {
+                 now: Double = Date().timeIntervalSince1970 * 1000,
+                 archives: [Double] = [], remembered: Double? = nil) -> Chat? {
     guard record["isArchived"] as? Bool != true,
           let id = record["cliSessionId"] as? String,
           let localId = record["sessionId"] as? String else { return nil }
@@ -66,7 +79,7 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         parentLocalId: record["lineageDetached"] as? Bool == true
             ? nil : (record["spawnedFrom"] as? [String: Any])?["sessionId"] as? String,
         finishedAt: max(number(row?["repliedAt"]), number(record["lastTurnEdgeAt"])),
-        viewedAt: number(record["lastFocusedAt"]),
+        viewedAt: viewedAt(focusedAt: number(record["lastFocusedAt"]), archives: archives, remembered: remembered),
         folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""
     ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: rowButtons(row, now: now),
            routineId: (record["scheduledTaskId"] as? String).flatMap { $0.isEmpty ? nil : $0 })

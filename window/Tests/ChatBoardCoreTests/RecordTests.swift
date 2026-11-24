@@ -189,3 +189,33 @@ private func record(_ extra: [String: Any] = [:]) -> [String: Any] {
         #expect(RenameRequest.cleanName(String(repeating: "a", count: 200), current: "Old") != nil)
     }
 }
+
+// Archiving a chat makes Claude jump to another chat by itself, which stamps that chat's lastFocusedAt
+// without the person looking at it (measured 2026-11-24: 64 ms after archiveSetAtMs).
+@Suite struct ArchiveJumpTests {
+    @Test func aFocusRightAfterAnArchiveIsNotAView() throws {
+        let listed = try #require(chat(record: record(["lastFocusedAt": 10_064, "lastTurnEdgeAt": 9_000]), row: nil,
+                                       privateFolders: [], archives: [10_000]))
+        #expect(listed.viewedAt == 0)
+        #expect(Board.isUnread(listed, currentId: nil, seenAt: nil))
+    }
+
+    @Test func theJumpKeepsTheLastRealView() throws {
+        let listed = try #require(chat(record: record(["lastFocusedAt": 10_064, "lastTurnEdgeAt": 9_000]), row: nil,
+                                       privateFolders: [], archives: [10_000], remembered: 9_500))
+        #expect(listed.viewedAt == 9_500)
+        #expect(!Board.isUnread(listed, currentId: nil, seenAt: nil))
+    }
+
+    @Test func aFocusWellAfterAnArchiveStillCounts() throws {
+        let listed = try #require(chat(record: record(["lastFocusedAt": 20_000, "lastTurnEdgeAt": 9_000]), row: nil,
+                                       privateFolders: [], archives: [10_000]))
+        #expect(listed.viewedAt == 20_000)
+    }
+
+    @Test func archiveTimesComeFromArchivedRecordsOnly() {
+        let times = archiveTimes([record(["isArchived": true, "archiveSetAtMs": 7]), record(["archiveSetAtMs": 8]),
+                                  record(["isArchived": true])])
+        #expect(times == [7])
+    }
+}

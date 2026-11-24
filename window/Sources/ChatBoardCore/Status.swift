@@ -69,6 +69,12 @@ public func waitingOn(_ pending: [String: Any]?, now: Double) -> String? {
 // that rewrites the list, so a list this old means that turn never came (a lost notification, a quit app).
 public let backgroundStaleMs: Double = 3 * 60 * 60000
 
+// A published page's comment watcher waits on the person and never ends, so it is not work running.
+// Mirrors the mod's `isPageWatcher`.
+public func isPageWatcher(_ item: [String: Any]) -> Bool {
+    item["type"] as? String == "monitor" && (item["label"] as? String ?? "").hasPrefix("live updates for artifact")
+}
+
 // What the chat left running when its last turn ended, as one line. Mirrors the mod's `runningInBackground`.
 // The chat's own label counts even with an empty engine list: a session it started never appears in that list.
 public func runningInBackground(_ row: [String: Any], now: Double) -> String? {
@@ -78,7 +84,8 @@ public func runningInBackground(_ row: [String: Any], now: Double) -> String? {
        now - number(verdict["at"]) <= backgroundStaleMs,
        let label = verdict["background"] as? String, !label.isEmpty { named = label }
     guard let running = row["background"] as? [String: Any],
-          let items = running["items"] as? [[String: Any]], let first = items.first else { return named }
+          let items = (running["items"] as? [[String: Any]])?.filter({ !isPageWatcher($0) }), let first = items.first
+    else { return named }
     let at = number(running["at"])
     guard at >= since, now - at <= backgroundStaleMs else { return named }
     if let named { return named }

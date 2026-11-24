@@ -77,6 +77,9 @@ final class BoardModel: ObservableObject {
     // Redrawing the list mid-drag cancels the drag.
     var isPointerHeld: () -> Bool = { false }
 
+    // Each chat's last real view, so Claude's jump to the next chat after an archive doesn't erase it.
+    private var realViews: [String: Double] = [:]
+
     func reload() {
         if isPointerHeld() { return }
         let manager = FileManager.default
@@ -116,10 +119,13 @@ final class BoardModel: ObservableObject {
             configWasUnreadable = true
         case .list(let privateFolders):
             configWasUnreadable = false
+            let archives = archiveTimes(records)
             list = records.compactMap { record in
                 ChatBoardCore.chat(record: record, row: (record["cliSessionId"] as? String).flatMap { rows[$0] },
-                                   privateFolders: privateFolders)
+                                   privateFolders: privateFolders, archives: archives,
+                                   remembered: (record["cliSessionId"] as? String).flatMap { realViews[$0] })
             }
+            for chat in list { realViews[chat.id] = chat.viewedAt }
         }
 
         let saved = readOrder()

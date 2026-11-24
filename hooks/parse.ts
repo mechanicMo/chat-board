@@ -65,11 +65,17 @@ export const runningInBackground = (row: HudRow, now: number): string | null => 
   const verdict = row.verdict
   const named = verdict && verdict.at >= row.userAt && now - verdict.at <= BACKGROUND_STALE_MS ? verdict.background : undefined
   const running = row.background
-  if (!running || running.items.length === 0 || running.at < row.userAt || now - running.at > BACKGROUND_STALE_MS) return named || null
+  const items = running ? running.items.filter(item => !isPageWatcher(item)) : []
+  if (!running || items.length === 0 || running.at < row.userAt || now - running.at > BACKGROUND_STALE_MS) return named || null
   if (named) return named
-  const more = running.items.length - 1
-  return running.items[0]!.label + (more > 0 ? ` (+${more} more)` : '')
+  const more = items.length - 1
+  return items[0]!.label + (more > 0 ? ` (+${more} more)` : '')
 }
+
+// A published page's comment watcher waits on the person, never ends on its own and reports nothing back, so it
+// is not work running. Counting it kept a chat grey for good (Mo, 2026-11-24: seven of them on one chat).
+export const isPageWatcher = (item: { type: string; label: string }) =>
+  item.type === 'monitor' && item.label.startsWith('live updates for artifact')
 
 // The engine's in-flight list at Stop, as the row keeps it. Scheduled wakeups (session_crons) are not here on
 // purpose: they aren't work running, and a chat looping every 30 minutes would never leave grey.
