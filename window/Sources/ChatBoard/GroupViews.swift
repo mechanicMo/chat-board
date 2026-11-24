@@ -98,7 +98,7 @@ struct SectionHeader: View {
 }
 
 // A parent chat and its side chats: a card like a project card, but led by the parent's own row, always shown in full.
-// The arrow beside it (with the side chat count under it) folds the side chats away to a status bar of them, or shows
+// The arrow right of it (with the side chat count under it) folds the side chats away to a status bar of them, or shows
 // them under the parent, smaller and set in so they read as its children. Clicks: BoardModel.click ("family:<id>").
 struct FamilyCardView<Parent: View, Kids: View>: View {
     let block: Family.Block
@@ -113,7 +113,9 @@ struct FamilyCardView<Parent: View, Kids: View>: View {
     var body: some View {
         let total = block.children.count
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 4) {
+            // The arrow and count sit right of the parent, so the parent's row starts at the card's left edge.
+            HStack(alignment: .top, spacing: 2) {
+                parent()
                 VStack(spacing: 2) {
                     Image(systemName: block.folded ? "chevron.right" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
@@ -126,7 +128,6 @@ struct FamilyCardView<Parent: View, Kids: View>: View {
                 }
                 .padding(.top, 2)
                 .help(block.folded ? "Show the \(total) side chats" : "Fold the side chats")
-                parent()
             }
             if block.folded {
                 HStack(spacing: 8) {
