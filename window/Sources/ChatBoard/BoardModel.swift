@@ -209,6 +209,14 @@ final class BoardModel: ObservableObject {
     func isExpanded(_ id: String) -> Bool { !layout.folded.contains(id) }
     func toggleExpanded(_ id: String) { apply(Moves.toggleExpanded(layout, group: id)) }
 
+    // A parent chat and its side chats, folded or open under it (Family).
+    func family(_ parent: Chat, children: [Chat]) -> Family.Block { Family.block(parent, children: children, layout: layout) }
+    func families(_ list: [Chat]) -> [Family.Block] { Family.split(list, layout: layout) }
+    func toggleFamily(_ parentId: String) {
+        let count = Tree.children(of: chats)[chats.first { $0.id == parentId }?.localId ?? ""]?.count ?? 0
+        apply(Moves.toggleFamily(layout, parent: parentId, childCount: count))
+    }
+
     func move(_ node: Node, to container: Container, before: Node?) {
         apply(Moves.move(layout, node, to: container, before: before))
     }
@@ -318,13 +326,14 @@ final class BoardModel: ObservableObject {
     // board (a card shows its chats unless folded). Collapsed sections show none.
     var visibleChats: [Chat] {
         if isSearching { return shown }
-        if let card = openCard { return card.chats }
-        let folded = layout.folded
+        if let card = openCard { return families(card.chats).flatMap(Family.rows) }
+        let layout = layout
         return tree.flatMap { top -> [Chat] in
             func rows(_ entry: Tree.Entry) -> [Chat] {
                 switch entry {
-                case .chat(let chat, let children): return [chat] + children
-                case .group(let card): return folded.contains(card.id) ? [] : card.chats
+                case .chat(let chat, let children): return Family.rows(Family.block(chat, children: children, layout: layout))
+                case .group(let card):
+                    return layout.folded.contains(card.id) ? [] : Family.split(card.chats, layout: layout).flatMap(Family.rows)
                 }
             }
             switch top {
@@ -415,6 +424,7 @@ final class BoardModel: ObservableObject {
                 .min(by: { $0.value.width * $0.value.height < $1.value.width * $1.value.height })?.key else { return false }
         if hit.hasPrefix("open:") { openProject(String(hit.dropFirst(5))) }
         else if hit.hasPrefix("group:") { toggleExpanded(String(hit.dropFirst(6))) }
+        else if hit.hasPrefix("family:") { toggleFamily(String(hit.dropFirst(7))) }
         else if hit.hasPrefix("section:") { toggleSection(String(hit.dropFirst(8))) }
         else if hit.hasPrefix("home") { goHome() }
         return false

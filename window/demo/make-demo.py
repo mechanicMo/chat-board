@@ -37,6 +37,11 @@ chats = [
      "Exports a week of meals to a printable PDF.", 72, False, None, 0),
     # The chat open beside the board, drawn as the highlighted current chat.
     ("[side] chat board - write the readme", "working", "", 0, False, None, 1),
+    # Three side chats of the pricing page: a family that starts folded, with the one waiting on you still showing.
+    ("[biz] website - pricing lane: copy", "working", "", 0, False, 8, 0),
+    ("[biz] website - pricing lane: layout", "working", "", 0, False, 8, 0),
+    ("[biz] website - pricing lane: checkout", "your_move",
+     "Left: you pick monthly or yearly as the default.", 5, True, 8, 0),
 ]
 
 # The end-of-turn box's buttons for some questions. A question with one or two shows them on the board;

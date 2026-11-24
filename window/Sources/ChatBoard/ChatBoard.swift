@@ -350,9 +350,11 @@ struct BoardView: View {
         switch entry {
         case .chat(let chat, let children):
             let inSection = container != .top
+            let family = board.family(chat, children: children)
             VStack(spacing: 2) {
                 draggable(row(chat, title: inSection ? untaggedTitle(chat) : nil), .chat(chat.id), in: container)
-                ForEach(children) { child in row(child, title: inSection ? untaggedTitle(child) : nil) }
+                if !children.isEmpty { FamilyStrip(block: family).background(reportHit("family:" + chat.id)) }
+                ForEach(family.shown) { child in row(child, title: inSection ? untaggedTitle(child) : nil) }
             }
         case .group(let card):
             let expanded = board.isExpanded(card.id)
@@ -431,11 +433,14 @@ struct BoardView: View {
     // A project's chats, on its page or inside its card when expanded on the board.
     @ViewBuilder
     private func cardRows(_ card: Tree.Card) -> some View {
-        ForEach(card.chats) { chat in
-            if chat.depth == 0 {
-                draggable(row(chat, title: taskTitle(chat), card: card.id), .chat(chat.id), in: .group(card.id))
-            } else {
-                row(chat, title: taskTitle(chat), card: card.id)
+        VStack(spacing: 2) {
+            ForEach(board.families(card.chats), id: \.parent.id) { family in
+                draggable(row(family.parent, title: taskTitle(family.parent), card: card.id), .chat(family.parent.id),
+                          in: .group(card.id))
+                if !family.children.isEmpty {
+                    FamilyStrip(block: family).background(reportHit("family:" + family.parent.id))
+                }
+                ForEach(family.shown) { chat in row(chat, title: taskTitle(chat), card: card.id) }
             }
         }
         .padding(.top, 4)

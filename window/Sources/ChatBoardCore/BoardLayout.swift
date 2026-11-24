@@ -76,10 +76,13 @@ public struct BoardLayout: Codable, Equatable, Sendable {
     // Project cards folded down to their summary on the board, by group id. Cards are open, showing their chats like a
     // section, unless listed here (Mo, 2026-11-14: open by default).
     public var folded: Set<String>
+    // A parent chat's side chats, folded (true) or open (false) under it, by the parent's chat id. A parent missing
+    // here uses the default: folded from three side chats up (Mo, 2026-11-24). See Family.
+    public var families: [String: Bool]
 
     public init(top: [Node] = [], sections: [String: TagSection] = [:], groups: [String: ProjectGroup] = [:],
                 manual: Set<String> = [], filedAs: [String: String] = [:], priorities: [String: Priority] = [:],
-                folded: Set<String> = []) {
+                folded: Set<String> = [], families: [String: Bool] = [:]) {
         self.top = top
         self.sections = sections
         self.groups = groups
@@ -87,6 +90,7 @@ public struct BoardLayout: Codable, Equatable, Sendable {
         self.filedAs = filedAs
         self.priorities = priorities
         self.folded = folded
+        self.families = families
     }
 
     // A layout.json saved before priorities or folded cards existed has no key for them.
@@ -99,6 +103,7 @@ public struct BoardLayout: Codable, Equatable, Sendable {
         filedAs = try values.decode([String: String].self, forKey: .filedAs)
         priorities = try values.decodeIfPresent([String: Priority].self, forKey: .priorities) ?? [:]
         folded = try values.decodeIfPresent(Set<String>.self, forKey: .folded) ?? []
+        families = try values.decodeIfPresent([String: Bool].self, forKey: .families) ?? [:]
     }
 
     static func priorityKey(_ node: Node) -> String? {
