@@ -34,6 +34,18 @@ import Testing
         #expect(TitleParse.parse("Why does the build fail on the second run: a note").project == nil)
     }
 
+    // The capture hook marks a chat by putting "cap " in front of its title (2026-11-24). The tag and project still count.
+    @Test func aMarkerWordBeforeTheTagIsSkipped() {
+        #expect(TitleParse.parse("cap [BBM] ankur - games: kid playtest fixes")
+                == ParsedTitle(tag: "BBM", project: "ankur", task: "games: kid playtest fixes"))
+        #expect(TitleParse.parse("cap gc-82").project == nil)
+    }
+
+    // A sentence that only mentions brackets later on is not a tagged title.
+    @Test func bracketsDeepInASentenceAreNotATag() {
+        #expect(TitleParse.parse("please look at the [draft] - today").tag == nil)
+    }
+
     @Test func keysIgnoreCaseAndSpacing() {
         #expect(TitleParse.key("  Orchard   Games ") == "orchard games")
     }

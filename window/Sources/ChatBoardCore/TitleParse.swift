@@ -15,8 +15,10 @@ public struct ParsedTitle: Equatable, Sendable {
 }
 
 public enum TitleParse {
-    // `[tag] project - task`, where the separator is the first run of dashes with spaces around it.
-    private static let tagged = try! NSRegularExpression(pattern: #"^\s*\[([^\]]+)\]\s*(.*)$"#)
+    // `[tag] project - task`, where the separator is the first run of dashes with spaces around it. Up to two plain
+    // words may come before the tag: the capture hook marks a chat by renaming it "cap [tag] project - task", and that
+    // used to read as no project at all, so the chat left its group (Mo, 2026-11-24).
+    private static let tagged = try! NSRegularExpression(pattern: #"^\s*(?:[^\s\[\]]+\s+){0,2}\[([^\]]+)\]\s*(.*)$"#)
     private static let separator = try! NSRegularExpression(pattern: #"\s+-+\s+"#)
     // `Project: task`, for titles written before the format. Up to three words before the colon, so an ordinary
     // sentence that happens to hold a colon isn't read as a project.

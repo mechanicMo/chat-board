@@ -104,6 +104,13 @@ private func groupNamed(_ layout: BoardLayout, _ name: String) -> ProjectGroup? 
         #expect(layout.filedAs["c"] == "[work] orchard - new task")
     }
 
+    // Capture renames a chat "cap [tag] project - task"; it must stay in its project's group (Mo, 2026-11-24).
+    @Test func aCaptureMarkerKeepsTheChatInItsGroup() throws {
+        let start = AutoFile.update(BoardLayout(), chats: [chat("a", "[BBM] ankur - one"), chat("b", "[BBM] ankur - two")])
+        let renamed = AutoFile.update(start, chats: [chat("a", "cap [BBM] ankur - one"), chat("b", "[BBM] ankur - two")])
+        #expect(try #require(groupNamed(renamed, "ankur")).chats == ["a", "b"])
+    }
+
     @Test func anAutoGroupBelowTwoChatsDissolvesInPlace() throws {
         let start = AutoFile.update(BoardLayout(), chats: [chat("a", "[work] orchard - a"), chat("b", "[work] orchard - b")])
         #expect(start.groups.count == 1)
