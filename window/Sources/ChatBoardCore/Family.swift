@@ -1,8 +1,8 @@
 import Foundation
 
-// A parent chat and the side chats it started, drawn as one group: the parent's row is the header, and under it a
-// strip with a fold arrow, the side chat count and their status bar (Mo, 2026-11-24). Folded, the side chats are
-// hidden except any that need the person (a question or their move), so folding never hides something to act on.
+// A parent chat and the side chats it started, drawn exactly like a project card (Mo, 2026-11-24: "make it look
+// exactly how a group looks"): the parent's title in the header with the fold arrow and count, the status bar, and
+// inside it the parent's row then its side chats. Folded, it shows the one chat that needs the person most.
 public enum Family {
     // From this many side chats up, a family starts folded until the person opens it.
     public static let foldFrom = 3
@@ -11,13 +11,15 @@ public enum Family {
         public let parent: Chat
         public let children: [Chat]    // every side chat, in drawing order
         public let folded: Bool
-        public let counts: [Kind: Int] // the side chats' statuses, for the strip's bar
+        public let counts: [Kind: Int] // the parent's and side chats' statuses, for the card's bar
 
-        // The side chats drawn under the strip: all of them when open, only those that need the person when folded.
-        public var shown: [Chat] { folded ? children.filter(Family.needsPerson) : children }
+        // The card the family is drawn as. Its id starts "family:" so its clicks never reach a project card's.
+        public var card: Tree.Card {
+            let list = [parent] + children
+            let lead = Tree.urgency.dropLast().lazy.compactMap { kind in list.first { $0.kind == kind } }.first
+            return Tree.Card(id: "family:" + parent.id, name: parent.title, chats: list, counts: counts, lead: lead)
+        }
     }
-
-    static func needsPerson(_ chat: Chat) -> Bool { chat.kind == .question || chat.kind == .yourMove }
 
     public static func isFolded(_ parentId: String, childCount: Int, layout: BoardLayout) -> Bool {
         layout.families[parentId] ?? (childCount >= foldFrom)
@@ -26,7 +28,7 @@ public enum Family {
     public static func block(_ parent: Chat, children: [Chat], layout: BoardLayout) -> Block {
         Block(parent: parent, children: children,
               folded: !children.isEmpty && isFolded(parent.id, childCount: children.count, layout: layout),
-              counts: Tree.counts(children))
+              counts: Tree.counts([parent] + children))
     }
 
     // A card's chats come flat, each side chat right after its top chat at depth 1. This splits them back into
@@ -40,8 +42,8 @@ public enum Family {
         return blocks.map { block($0.0, children: $0.1, layout: layout) }
     }
 
-    // The rows a family puts on screen, top to bottom.
-    public static func rows(_ block: Block) -> [Chat] { [block.parent] + block.shown }
+    // The chat rows a family puts on screen, top to bottom: none when folded, like a folded project card.
+    public static func rows(_ block: Block) -> [Chat] { block.folded ? [] : [block.parent] + block.children }
 }
 
 extension Moves {

@@ -97,45 +97,6 @@ struct SectionHeader: View {
     }
 }
 
-// Under a parent chat that started side chats: a fold arrow, how many there are, and their status bar. A click on it
-// folds or opens the side chats (BoardModel.click). Folded, the side chats that need the person still show below it.
-struct FamilyStrip: View {
-    let block: Family.Block
-    @State private var isHovered = false
-
-    private var summary: String {
-        let total = block.children.count
-        var parts = [total == 1 ? "1 side chat" : "\(total) side chats"]
-        if block.folded {
-            let hidden = total - block.shown.count
-            if hidden > 0, block.shown.count > 0 { parts.append("\(hidden) hidden") }
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: block.folded ? "chevron.right" : "chevron.down")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 12)
-            Text(summary)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-            StatusBar(counts: block.counts, height: 3).opacity(block.folded ? 0.9 : 0.4)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(isHovered ? 0.07 : 0.03)))
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .help(block.folded ? "Show the side chats" : "Fold the side chats")
-        .padding(.leading, 18)
-    }
-}
-
 // A project card. A click anywhere on it folds or opens it in place (the up/down arrow left of the name shows which),
 // showing its chats inside the card like a section; only the right arrow opens the project's own page (Mo, 2026-11-14).
 // Folded, it shows the chat that needs the person most.
@@ -146,6 +107,9 @@ struct GroupCardView<Rows: View>: View {
     // The card's priority: 1 is the normal size, 0.85 low, 1.3 high.
     var scale: Double = 1
     var expanded: Bool = false
+    // What the count says the card holds: "tasks" for a project, "chats" for a parent and its side chats.
+    var noun: String = "task"
+    var openHelp: String = "Open this project on its own"
     @ViewBuilder var rows: () -> Rows
     @State private var isHovered = false
 
@@ -170,11 +134,11 @@ struct GroupCardView<Rows: View>: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if isUnread, let lead = card.lead { Circle().fill(lead.kind.color).frame(width: 8 * scale, height: 8 * scale) }
-                Text(card.chats.count == 1 ? "1 task" : "\(card.chats.count) tasks")
+                Text(card.chats.count == 1 ? "1 \(noun)" : "\(card.chats.count) \(noun)s")
                     .font(.system(size: 12 * scale))
                     .foregroundStyle(.secondary)
                 arrow("chevron.right")
-                    .help("Open this project on its own")
+                    .help(openHelp)
                     .background(reportHit("open:" + card.id))
             }
             // Read cards dim like a read chat row, so a bright card always means something new inside.

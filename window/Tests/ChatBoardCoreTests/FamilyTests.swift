@@ -22,15 +22,24 @@ private func chat(_ id: String, _ kind: Kind = .working, depth: Int = 0) -> Chat
         #expect(!Family.block(chat("p"), children: [], layout: layout).folded)
     }
 
-    // Folding hides noise, never something to act on.
-    @Test func foldedStillShowsTheSideChatsThatNeedThePerson() {
-        let kids = [chat("w", depth: 1), chat("q", .question, depth: 1), chat("r", .ready, depth: 1),
-                    chat("m", .yourMove, depth: 1)]
+    // Drawn as a project card: folded it puts no rows on screen and leads with the chat that needs the person most.
+    @Test func foldedDrawsAsACardLedByTheMostUrgentChat() {
+        let kids = [chat("w", depth: 1), chat("m", .yourMove, depth: 1), chat("q", .question, depth: 1),
+                    chat("r", .ready, depth: 1)]
         let block = Family.block(chat("p"), children: kids, layout: empty)
         #expect(block.folded)
-        #expect(block.shown.map(\.id) == ["q", "m"])
-        #expect(Family.rows(block).map(\.id) == ["p", "q", "m"])
-        #expect(block.counts == [.working: 1, .question: 1, .ready: 1, .yourMove: 1])
+        #expect(Family.rows(block).isEmpty)
+        let card = block.card
+        #expect(card.id == "family:p")
+        #expect(card.name == "p")
+        #expect(card.chats.map(\.id) == ["p", "w", "m", "q", "r"])
+        #expect(card.lead?.id == "q")
+        #expect(card.counts == [.working: 2, .question: 1, .ready: 1, .yourMove: 1])
+    }
+
+    @Test func openShowsTheParentThenEverySideChat() {
+        let kids = [chat("a", depth: 1), chat("b", .ready, depth: 1)]
+        #expect(Family.rows(Family.block(chat("p"), children: kids, layout: empty)).map(\.id) == ["p", "a", "b"])
     }
 
     @Test func toggleOverridesTheDefaultBothWays() {

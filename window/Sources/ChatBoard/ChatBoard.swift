@@ -321,7 +321,7 @@ struct BoardView: View {
     }
 
     // `card` is the project card the row sits in: a low priority card hides its chats' buttons too.
-    private func row(_ chat: Chat, title: String? = nil, card: String? = nil) -> some View {
+    private func row(_ chat: Chat, title: String? = nil, card: String? = nil, indent: Bool = true) -> some View {
         let isLow = board.priority(of: .chat(chat.id)) == .low || card.map { board.priority(of: .group($0)) == .low } == true
         return ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
                 displayTitle: board.pendingName(chat) ?? title,
@@ -329,7 +329,7 @@ struct BoardView: View {
                 editText: board.editingId == chat.id ? $board.editText : nil,
                 onCommit: { board.commitRename() }, onCancel: { board.cancelRename() },
                 buttons: isLow || board.editingId == chat.id ? [] : chat.buttons)
-            .padding(.leading, chat.depth > 0 ? 18 : 0)
+            .padding(.leading, indent && chat.depth > 0 ? 18 : 0)
             .background(GeometryReader { geometry in
                 Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
             })
@@ -350,11 +350,11 @@ struct BoardView: View {
         switch entry {
         case .chat(let chat, let children):
             let inSection = container != .top
-            let family = board.family(chat, children: children)
-            VStack(spacing: 2) {
+            if children.isEmpty {
                 draggable(row(chat, title: inSection ? untaggedTitle(chat) : nil), .chat(chat.id), in: container)
-                if !children.isEmpty { FamilyStrip(block: family).background(reportHit("family:" + chat.id)) }
-                ForEach(family.shown) { child in row(child, title: inSection ? untaggedTitle(child) : nil) }
+            } else {
+                draggable(familyCard(board.family(chat, children: children), short: inSection), .chat(chat.id), in: container)
+                    .padding(.vertical, 2)
             }
         case .group(let card):
             let expanded = board.isExpanded(card.id)
@@ -430,17 +430,42 @@ struct BoardView: View {
         cardRows(card)
     }
 
+    // A parent chat and its side chats, drawn as a project card: the parent's title in the header, a click on the card
+    // folds it, the right arrow opens the parent chat. Inside, the parent's row and then its side chats.
+    @ViewBuilder
+    private func familyCard(_ family: Family.Block, short: Bool, card: String? = nil) -> some View {
+        let shown = family.card
+        let title = { (chat: Chat) in short ? taskTitle(chat) : chat.title }
+        GroupCardView(card: Tree.Card(id: shown.id, name: title(family.parent), chats: shown.chats, counts: shown.counts,
+                                      lead: shown.lead),
+                      isUnread: board.isUnread(shown), holdsCurrent: board.holdsCurrent(shown),
+                      scale: board.priority(of: .chat(family.parent.id)).scale, expanded: !family.folded,
+                      noun: "chat", openHelp: "Open this chat") {
+            ForEach(shown.chats) { chat in row(chat, title: title(chat), card: card, indent: false) }
+        }
+        .background(reportHit(shown.id))
+        .contextMenu {
+            Button("Open") { board.open(family.parent) }
+            Button(family.folded ? "Expand here" : "Fold here") { board.toggleFamily(family.parent.id) }
+            Button("Rename chat") { board.startRename(family.parent) }
+            if card == nil { MoveToMenu(board: board, node: .chat(family.parent.id)) }
+            PriorityMenu(board: board, node: .chat(family.parent.id))
+            Divider()
+            Button("Archive") { board.archive(family.parent) }
+        }
+    }
+
     // A project's chats, on its page or inside its card when expanded on the board.
     @ViewBuilder
     private func cardRows(_ card: Tree.Card) -> some View {
         VStack(spacing: 2) {
             ForEach(board.families(card.chats), id: \.parent.id) { family in
-                draggable(row(family.parent, title: taskTitle(family.parent), card: card.id), .chat(family.parent.id),
-                          in: .group(card.id))
-                if !family.children.isEmpty {
-                    FamilyStrip(block: family).background(reportHit("family:" + family.parent.id))
+                if family.children.isEmpty {
+                    draggable(row(family.parent, title: taskTitle(family.parent), card: card.id), .chat(family.parent.id),
+                              in: .group(card.id))
+                } else {
+                    draggable(familyCard(family, short: true, card: card.id), .chat(family.parent.id), in: .group(card.id))
                 }
-                ForEach(family.shown) { chat in row(chat, title: taskTitle(chat), card: card.id) }
             }
         }
         .padding(.top, 4)

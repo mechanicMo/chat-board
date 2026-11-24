@@ -19,6 +19,14 @@ public enum Tree {
         public let chats: [Chat]       // in the group's order, each side session right after its parent at depth 1
         public let counts: [Kind: Int]
         public let lead: Chat?         // the chat that needs the person most; nil when everything is still working
+
+        public init(id: String, name: String, chats: [Chat], counts: [Kind: Int], lead: Chat?) {
+            self.id = id
+            self.name = name
+            self.chats = chats
+            self.counts = counts
+            self.lead = lead
+        }
     }
 
     public struct SectionBlock: Equatable, Sendable {
