@@ -422,8 +422,7 @@ final class BoardModel: ObservableObject {
         // anywhere else on the card folds or opens it in place (Mo, 2026-11-14).
         guard !isSearching, let hit = hitsInWindow.filter({ $0.value.contains(point) })
                 .min(by: { $0.value.width * $0.value.height < $1.value.width * $1.value.height })?.key else { return false }
-        if hit.hasPrefix("open:family:"), let chat = chats.first(where: { $0.id == String(hit.dropFirst(12)) }) { open(chat) }
-        else if hit.hasPrefix("open:") { openProject(String(hit.dropFirst(5))) }
+        if hit.hasPrefix("open:") { openProject(String(hit.dropFirst(5))) }
         else if hit.hasPrefix("group:") { toggleExpanded(String(hit.dropFirst(6))) }
         else if hit.hasPrefix("family:") { toggleFamily(String(hit.dropFirst(7))) }
         else if hit.hasPrefix("section:") { toggleSection(String(hit.dropFirst(8))) }

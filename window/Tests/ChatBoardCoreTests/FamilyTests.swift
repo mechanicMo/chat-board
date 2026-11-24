@@ -22,19 +22,14 @@ private func chat(_ id: String, _ kind: Kind = .working, depth: Int = 0) -> Chat
         #expect(!Family.block(chat("p"), children: [], layout: layout).folded)
     }
 
-    // Drawn as a project card: folded it puts no rows on screen and leads with the chat that needs the person most.
-    @Test func foldedDrawsAsACardLedByTheMostUrgentChat() {
+    // The parent is always shown in full; folding hides only its side chats, and the bar counts only them.
+    @Test func foldedShowsOnlyTheParentAndCountsTheSideChats() {
         let kids = [chat("w", depth: 1), chat("m", .yourMove, depth: 1), chat("q", .question, depth: 1),
                     chat("r", .ready, depth: 1)]
-        let block = Family.block(chat("p"), children: kids, layout: empty)
+        let block = Family.block(chat("p", .ready), children: kids, layout: empty)
         #expect(block.folded)
-        #expect(Family.rows(block).isEmpty)
-        let card = block.card
-        #expect(card.id == "family:p")
-        #expect(card.name == "p")
-        #expect(card.chats.map(\.id) == ["p", "w", "m", "q", "r"])
-        #expect(card.lead?.id == "q")
-        #expect(card.counts == [.working: 2, .question: 1, .ready: 1, .yourMove: 1])
+        #expect(Family.rows(block).map(\.id) == ["p"])
+        #expect(block.counts == [.working: 1, .question: 1, .ready: 1, .yourMove: 1])
     }
 
     @Test func openShowsTheParentThenEverySideChat() {

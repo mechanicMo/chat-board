@@ -97,6 +97,64 @@ struct SectionHeader: View {
     }
 }
 
+// A parent chat and its side chats: a card like a project card, but led by the parent's own row, always shown in full.
+// The arrow beside it (with the side chat count under it) folds the side chats away to a status bar of them, or shows
+// them under the parent, smaller and set in so they read as its children. Clicks: BoardModel.click ("family:<id>").
+struct FamilyCardView<Parent: View, Kids: View>: View {
+    let block: Family.Block
+    let isUnread: Bool       // a side chat is unread, which brightens the folded bar
+    let holdsCurrent: Bool
+    @ViewBuilder var parent: () -> Parent
+    @ViewBuilder var kids: () -> Kids
+    @State private var isHovered = false
+
+    static var kidsIndent: CGFloat { 30 }
+
+    var body: some View {
+        let total = block.children.count
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 4) {
+                VStack(spacing: 2) {
+                    Image(systemName: block.folded ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(isHovered ? 0.07 : 0)))
+                    Text("\(total)")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.top, 2)
+                .help(block.folded ? "Show the \(total) side chats" : "Fold the side chats")
+                parent()
+            }
+            if block.folded {
+                HStack(spacing: 8) {
+                    StatusBar(counts: block.counts).opacity(isUnread ? 1 : 0.4)
+                    Text(total == 1 ? "1 side chat" : "\(total) side chats")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                .padding(.leading, Self.kidsIndent)
+                .padding(.trailing, 6)
+                .padding(.bottom, 2)
+            } else {
+                VStack(spacing: 2) { kids() }.padding(.leading, Self.kidsIndent)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(isHovered ? 0.07 : 0.045)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(holdsCurrent ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: holdsCurrent ? 1.5 : 0.5)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+}
+
 // A project card. A click anywhere on it folds or opens it in place (the up/down arrow left of the name shows which),
 // showing its chats inside the card like a section; only the right arrow opens the project's own page (Mo, 2026-11-14).
 // Folded, it shows the chat that needs the person most.

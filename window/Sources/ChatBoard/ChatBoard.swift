@@ -321,11 +321,13 @@ struct BoardView: View {
     }
 
     // `card` is the project card the row sits in: a low priority card hides its chats' buttons too.
-    private func row(_ chat: Chat, title: String? = nil, card: String? = nil, indent: Bool = true) -> some View {
+    // `shrink` draws a side chat inside a family a little smaller than its parent.
+    private func row(_ chat: Chat, title: String? = nil, card: String? = nil, indent: Bool = true,
+                     shrink: Double = 1) -> some View {
         let isLow = board.priority(of: .chat(chat.id)) == .low || card.map { board.priority(of: .group($0)) == .low } == true
         return ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
                 displayTitle: board.pendingName(chat) ?? title,
-                scale: board.priority(of: .chat(chat.id)).scale,
+                scale: board.priority(of: .chat(chat.id)).scale * shrink,
                 editText: board.editingId == chat.id ? $board.editText : nil,
                 onCommit: { board.commitRename() }, onCancel: { board.cancelRename() },
                 buttons: isLow || board.editingId == chat.id ? [] : chat.buttons)
@@ -430,29 +432,17 @@ struct BoardView: View {
         cardRows(card)
     }
 
-    // A parent chat and its side chats, drawn as a project card: the parent's title in the header, a click on the card
-    // folds it, the right arrow opens the parent chat. Inside, the parent's row and then its side chats.
+    // A parent chat and its side chats (FamilyCardView): the parent's row leads, its side chats fold under it.
     @ViewBuilder
     private func familyCard(_ family: Family.Block, short: Bool, card: String? = nil) -> some View {
-        let shown = family.card
         let title = { (chat: Chat) in short ? taskTitle(chat) : chat.title }
-        GroupCardView(card: Tree.Card(id: shown.id, name: title(family.parent), chats: shown.chats, counts: shown.counts,
-                                      lead: shown.lead),
-                      isUnread: board.isUnread(shown), holdsCurrent: board.holdsCurrent(shown),
-                      scale: board.priority(of: .chat(family.parent.id)).scale, expanded: !family.folded,
-                      noun: "chat", openHelp: "Open this chat") {
-            ForEach(shown.chats) { chat in row(chat, title: title(chat), card: card, indent: false) }
+        FamilyCardView(block: family, isUnread: family.children.contains { board.isUnread($0) },
+                       holdsCurrent: family.folded && family.children.contains { $0.id == board.currentId }) {
+            row(family.parent, title: title(family.parent), card: card)
+        } kids: {
+            ForEach(family.children) { chat in row(chat, title: title(chat), card: card, indent: false, shrink: 0.88) }
         }
-        .background(reportHit(shown.id))
-        .contextMenu {
-            Button("Open") { board.open(family.parent) }
-            Button(family.folded ? "Expand here" : "Fold here") { board.toggleFamily(family.parent.id) }
-            Button("Rename chat") { board.startRename(family.parent) }
-            if card == nil { MoveToMenu(board: board, node: .chat(family.parent.id)) }
-            PriorityMenu(board: board, node: .chat(family.parent.id))
-            Divider()
-            Button("Archive") { board.archive(family.parent) }
-        }
+        .background(reportHit("family:" + family.parent.id))
     }
 
     // A project's chats, on its page or inside its card when expanded on the board.
