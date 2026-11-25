@@ -68,14 +68,24 @@ public enum PhoneChats {
         return texts
     }
 
+    // The `session_<id>` of a phone chat that runs in its own folder, `.../bridge-cse_<id>`, which Claude makes
+    // for it. Nil for any other folder.
+    public static func sessionId(fromCwd cwd: String?) -> String? {
+        guard let last = cwd?.split(separator: "/").last, last.hasPrefix("bridge-cse_") else { return nil }
+        let id = last.dropFirst("bridge-cse_".count)
+        return id.isEmpty ? nil : "session_" + id
+    }
+
     // A record shaped like the app's own, so `chat(record:row:)` treats a phone chat like any other.
-    // Nil while the chat hasn't been named by the server yet or its process isn't running here.
+    // Nil while its process isn't running here. A chat never renamed shows as "Untitled chat" until it is (Mo,
+    // 2026-11-25: a phone chat opened with "New session" and never renamed was hidden), found by its own
+    // folder; one that is unnamed and runs in a shared folder can't be matched to its process and stays hidden.
     public static func record(cliSessionId: String, seen: Seen, live: Set<String>, lastActivityAt: Double) -> [String: Any]? {
-        guard let sessionId = seen.sessionId, live.contains(sessionId), let title = seen.title else { return nil }
+        guard let sessionId = seen.sessionId ?? sessionId(fromCwd: seen.cwd), live.contains(sessionId) else { return nil }
         return [
             "cliSessionId": cliSessionId,
             "sessionId": sessionId,
-            "title": title,
+            "title": seen.title ?? "Untitled chat",
             "cwd": seen.cwd ?? "",
             "lastActivityAt": lastActivityAt,
             // Its name lives on the server, so only Claude's own menu can rename it (the mod's rename tool

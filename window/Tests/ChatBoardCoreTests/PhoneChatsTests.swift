@@ -63,9 +63,18 @@ COMMAND
         #expect(chat(record: plain, row: ["phase": "idle"], privateFolders: [])?.isPhone == false)
     }
 
-    @Test func anUnnamedChatHasNoRecord() {
+    @Test func anUnnamedChatInASharedFolderHasNoRecord() {
         var seen = PhoneChats.Seen()
         PhoneChats.read(lines: [errorLine()], into: &seen)
         #expect(PhoneChats.record(cliSessionId: "cli-1", seen: seen, live: ["session_01AbC"], lastActivityAt: 5) == nil)
+    }
+
+    @Test func anUnnamedChatInItsOwnFolderShowsAsUntitled() {
+        let seen = PhoneChats.Seen(cwd: "/Users/me/work/.claude/worktrees/bridge-cse_01AbC")
+        let record = PhoneChats.record(cliSessionId: "cli-1", seen: seen, live: ["session_01AbC"], lastActivityAt: 5)
+        #expect(record?["sessionId"] as? String == "session_01AbC")
+        #expect(record?["title"] as? String == "Untitled chat")
+        #expect(PhoneChats.record(cliSessionId: "cli-1", seen: seen, live: ["session_other"], lastActivityAt: 5) == nil)
+        #expect(PhoneChats.sessionId(fromCwd: "/Users/me/work/bridge-cse_") == nil)
     }
 }
