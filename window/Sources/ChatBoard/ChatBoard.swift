@@ -36,42 +36,58 @@ struct ChatRow: View {
                 .fill(isCurrent ? Color.white.opacity(0.9) : chat.kind.color.opacity(isUnread ? 1 : 0.4))
                 .frame(width: 3 * max(scale, 0.67))
             VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline) {
-                    if let editText {
-                        TitleField(text: editText, size: 16 * scale, onCommit: onCommit, onCancel: onCancel)
-                    } else {
-                        if chat.routineId != nil {
-                            // A run of a scheduled routine, which Claude keeps out of its own chat list.
-                            Text("ROUTINE")
-                                .font(.system(size: 10 * scale, weight: .bold))
-                                .foregroundStyle(isCurrent ? chat.kind.color : Color.white)
-                                .padding(.horizontal, 5 * scale)
-                                .padding(.vertical, 1.5 * scale)
-                                .background(Capsule().fill(isCurrent ? Color.white : Color.purple.opacity(0.8)))
-                                .fixedSize()
-                                .help("Started by the \(chat.routineId ?? "") routine")
+                // The time and, for a phone chat, a phone icon sit in their own column at the right, so the icon
+                // under the time never pushes the second line down (Mo, 2026-11-25).
+                HStack(alignment: .top, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        if let editText {
+                            TitleField(text: editText, size: 16 * scale, onCommit: onCommit, onCancel: onCancel)
+                        } else {
+                            HStack(alignment: .firstTextBaseline) {
+                                if chat.routineId != nil {
+                                    // A run of a scheduled routine, which Claude keeps out of its own chat list.
+                                    Text("ROUTINE")
+                                        .font(.system(size: 10 * scale, weight: .bold))
+                                        .foregroundStyle(isCurrent ? chat.kind.color : Color.white)
+                                        .padding(.horizontal, 5 * scale)
+                                        .padding(.vertical, 1.5 * scale)
+                                        .background(Capsule().fill(isCurrent ? Color.white : Color.purple.opacity(0.8)))
+                                        .fixedSize()
+                                        .help("Started by the \(chat.routineId ?? "") routine")
+                                }
+                                // Up to two lines, so a narrow window still shows enough of the title to recognize it.
+                                Text(displayTitle ?? chat.title)
+                                    .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))
+                                    .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(isUnread ? 1 : 0.62))
+                                    .lineLimit(scale < 1 ? 1 : 2)
+                                    .truncationMode(.tail)
+                            }
                         }
-                        // Up to two lines, so a narrow window still shows enough of the title to recognize it.
-                        Text(displayTitle ?? chat.title)
-                            .font(.system(size: 16 * scale, weight: isUnread || isCurrent ? .bold : .regular))
-                            .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(isUnread ? 1 : 0.62))
-                            .lineLimit(scale < 1 ? 1 : 2)
-                            .truncationMode(.tail)
+                        if !chat.line.isEmpty {
+                            Text(chat.line)
+                                .font(.system(size: 14 * scale))
+                                .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : Color.primary.opacity(isUnread ? 0.75 : 0.42))
+                                .lineLimit(scale < 1 ? 1 : 2)
+                                .truncationMode(.tail)
+                        }
                     }
                     Spacer(minLength: 4)
-                    if isUnread {
-                        Circle().fill(chat.kind.color).frame(width: 8 * scale, height: 8 * scale)
+                    VStack(alignment: .trailing, spacing: 4 * scale) {
+                        HStack(spacing: 6) {
+                            if isUnread {
+                                Circle().fill(chat.kind.color).frame(width: 8 * scale, height: 8 * scale)
+                            }
+                            Text(age(chat.activeAt))
+                                .font(.system(size: 13 * scale).monospacedDigit())
+                        }
+                        .frame(height: 19 * scale)   // one title line tall, so the time lines up with the title
+                        if chat.isPhone {
+                            Image(systemName: "iphone")
+                                .font(.system(size: 12 * scale))
+                                .help("Started from your phone")
+                        }
                     }
-                    Text(age(chat.activeAt))
-                        .font(.system(size: 13 * scale).monospacedDigit())
-                        .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : .secondary)
-                }
-                if !chat.line.isEmpty {
-                    Text(chat.line)
-                        .font(.system(size: 14 * scale))
-                        .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : Color.primary.opacity(isUnread ? 0.75 : 0.42))
-                        .lineLimit(scale < 1 ? 1 : 2)
-                        .truncationMode(.tail)
+                    .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : .secondary)
                 }
                 if !buttons.isEmpty {
                     HStack(spacing: 6 * scale) {

@@ -56,6 +56,11 @@ COMMAND
         let made = chat(record: record!, row: ["phase": "idle"], privateFolders: [])
         #expect(made?.localId == "session_01AbC")
         #expect(made?.nameIsPersons == true)
+        // It is marked as a phone chat, so its row draws the phone icon; an ordinary chat is not.
+        #expect(made?.isPhone == true)
+        var plain = record!
+        plain["isPhone"] = nil
+        #expect(chat(record: plain, row: ["phase": "idle"], privateFolders: [])?.isPhone == false)
     }
 
     @Test func anUnnamedChatHasNoRecord() {

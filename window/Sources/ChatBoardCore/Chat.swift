@@ -16,6 +16,7 @@ public struct Chat: Identifiable, Equatable, Sendable {
     public var nameIsPersons = false   // the person typed this name in Claude's own sidebar, so only Claude's menu can replace it
     public var buttons: [AnswerButton] = []  // the end-of-turn box's one or two buttons, or an orange chat's go-ahead, drawn on the board
     public var routineId: String? = nil      // set for a run of a scheduled routine, which the board labels so it isn't mistaken for a chat Mo opened
+    public var isPhone = false               // started from the phone (see PhoneChats.swift); the row shows a phone icon under its age, like Claude's sidebar
 
     public init(id: String, localId: String, title: String, kind: Kind, line: String, activeAt: Double,
                 focusedAt: Double, parentLocalId: String? = nil, finishedAt: Double = 0, viewedAt: Double = 0,
@@ -82,12 +83,14 @@ public func chat(record: [String: Any], row: [String: Any]?, privateFolders: [St
         viewedAt: viewedAt(focusedAt: number(record["lastFocusedAt"]), archives: archives, remembered: remembered),
         folder: ((record["cwd"] as? String) ?? "").split(separator: "/").last.map(String.init) ?? ""
     ).with(nameIsPersons: record["titleSource"] as? String == "user", buttons: rowButtons(row, now: now),
-           routineId: (record["scheduledTaskId"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+           routineId: (record["scheduledTaskId"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+           isPhone: record["isPhone"] as? Bool == true)
 }
 
 extension Chat {
-    func with(nameIsPersons: Bool, buttons: [AnswerButton] = [], routineId: String? = nil) -> Chat {
+    func with(nameIsPersons: Bool, buttons: [AnswerButton] = [], routineId: String? = nil, isPhone: Bool = false) -> Chat {
         var copy = self
+        copy.isPhone = isPhone
         copy.nameIsPersons = nameIsPersons
         copy.buttons = buttons
         copy.routineId = routineId
