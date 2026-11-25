@@ -65,6 +65,7 @@ final class BoardModel: ObservableObject {
     private var pendingRename: [String: (title: String, name: String, answeredAt: Double?)] = [:]   // by localId
     private var timer: Timer?
     private var configWasUnreadable = false
+    private var phones = PhoneChatReader()
 
     init() {
         reload()
@@ -120,6 +121,9 @@ final class BoardModel: ObservableObject {
         case .list(let privateFolders):
             configWasUnreadable = false
             let archives = archiveTimes(records)
+            // Phone chats have no record of their own: stand-ins built from their transcript and process.
+            let recorded = Set(records.compactMap { $0["cliSessionId"] as? String })
+            records += demoRoot == nil ? phones.records(rows: rows, recorded: recorded) : []
             list = records.compactMap { record in
                 ChatBoardCore.chat(record: record, row: (record["cliSessionId"] as? String).flatMap { rows[$0] },
                                    privateFolders: privateFolders, archives: archives,
@@ -760,3 +764,85 @@ final class BoardModel: ObservableObject {
         }
     }
 }
+
+// Finds the chats started from the phone (see ChatBoardCore/PhoneChats.swift). Their transcripts are read only from
+// where the last read stopped, and only rows active in the last 3 days without a record are looked up.
+struct PhoneChatReader {
+    private let projectsDir = home + "/.claude/projects"
+    private var paths: [String: (path: String?, checkedAt: Double)] = [:]   // by CLI session id
+    private var reads: [String: (offset: UInt64, partial: Data, seen: PhoneChats.Seen)] = [:]   // by path
+    private var live: Set<String> = []
+    private var liveAt: Double = 0
+
+    mutating func records(rows: [String: [String: Any]], recorded: Set<String>) -> [[String: Any]] {
+        let now = Date().timeIntervalSince1970 * 1000
+        let candidates = rows.filter { id, row in
+            !recorded.contains(id) && row["isOff"] as? Bool != true
+                && now - max(number(row["userAt"]), number(row["repliedAt"])) < 3 * 86_400_000
+        }
+        guard !candidates.isEmpty else { return [] }
+        if now - liveAt > 5000 { live = PhoneChats.liveSessions(ps: runPs()); liveAt = now }
+        guard !live.isEmpty else { return [] }
+        var out: [[String: Any]] = []
+        for id in candidates.keys {
+            guard let path = transcript(id, now: now) else { continue }
+            let seen = read(path)
+            if let record = PhoneChats.record(cliSessionId: id, seen: seen, live: live, lastActivityAt: mtimeMs(path)) {
+                out.append(record)
+            }
+        }
+        return out
+    }
+
+    private mutating func transcript(_ id: String, now: Double) -> String? {
+        if let known = paths[id], known.path != nil || now - known.checkedAt < 60_000 { return known.path }
+        let dirs = (try? FileManager.default.contentsOfDirectory(atPath: projectsDir)) ?? []
+        let root = projectsDir
+        let path = dirs.lazy.map { "\(root)/\($0)/\(id).jsonl" }.first { FileManager.default.fileExists(atPath: $0) }
+        paths[id] = (path, now)
+        return path
+    }
+
+    private mutating func read(_ path: String) -> PhoneChats.Seen {
+        var state = reads[path] ?? (0, Data(), PhoneChats.Seen())
+        guard let handle = FileHandle(forReadingAtPath: path) else { return state.seen }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        if size < state.offset { state = (0, Data(), PhoneChats.Seen()) }   // rewritten: start over
+        guard size > state.offset else { return state.seen }
+        try? handle.seek(toOffset: state.offset)
+        var data = state.partial + ((try? handle.readToEnd()) ?? Data())
+        state.offset = size
+        // Keep a line that's still being written for the next read.
+        if let lastNewline = data.lastIndex(of: 0x0A) {
+            state.partial = data[(lastNewline + 1)...]
+            data = data[..<lastNewline]
+        } else {
+            state.partial = data
+            data = Data()
+        }
+        let text = String(decoding: data, as: UTF8.self)
+        PhoneChats.read(lines: text.split(separator: "\n"), into: &state.seen)
+        reads[path] = state
+        return state.seen
+    }
+
+    private func runPs() -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "command"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func mtimeMs(_ path: String) -> Double {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return ((attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0) * 1000
+    }
+}
+
