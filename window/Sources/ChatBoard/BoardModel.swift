@@ -482,6 +482,22 @@ final class BoardModel: ObservableObject {
         selected = min(max(selected + step, 0), count - 1)
     }
 
+    // While Cmd is held: the number each of the first nine chats on screen shows (see Shortcuts).
+    @Published private(set) var shortcutNumbers: [String: Int] = [:]
+    func showShortcuts(_ show: Bool) {
+        let numbers = show ? Shortcuts.numbers(visibleChats) : [:]
+        if numbers != shortcutNumbers { shortcutNumbers = numbers }
+    }
+
+    // Cmd+1 to Cmd+9: opens that chat. False when fewer chats are on screen, so the key goes on to Claude.
+    func openShortcut(_ number: Int) -> Bool {
+        guard let chat = Shortcuts.chat(number, in: visibleChats) else { return false }
+        showShortcuts(false)
+        endSearch()
+        open(chat)
+        return true
+    }
+
     func openSelected() {
         let list = shown
         guard list.indices.contains(selected) else { return }

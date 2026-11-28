@@ -28,6 +28,8 @@ struct ChatRow: View {
     var onCancel: () -> Void = {}
     // The question's one or two buttons, or an orange chat's go-ahead, drawn side by side under the line. Empty for low priority chats.
     var buttons: [AnswerButton] = []
+    // While Cmd is held, the number that opens this chat (Cmd+1 to Cmd+9), shown in place of the time.
+    var shortcut: Int? = nil
     @State private var isHovered = false
 
     var body: some View {
@@ -77,8 +79,19 @@ struct ChatRow: View {
                             if isUnread {
                                 Circle().fill(chat.kind.color).frame(width: 8 * scale, height: 8 * scale)
                             }
-                            Text(age(chat.activeAt))
-                                .font(.system(size: 13 * scale).monospacedDigit())
+                            if let shortcut {
+                                Text("\u{2318}\(shortcut)")
+                                    .font(.system(size: 12 * scale, weight: .semibold).monospacedDigit())
+                                    .foregroundStyle(isCurrent ? chat.kind.color : Color.primary)
+                                    .padding(.horizontal, 5 * scale)
+                                    .padding(.vertical, 1 * scale)
+                                    .background(RoundedRectangle(cornerRadius: 4)
+                                        .fill(isCurrent ? Color.white : Color.primary.opacity(0.14)))
+                                    .fixedSize()
+                            } else {
+                                Text(age(chat.activeAt))
+                                    .font(.system(size: 13 * scale).monospacedDigit())
+                            }
                         }
                         .frame(height: 19 * scale)   // one title line tall, so the time lines up with the title
                         if chat.isPhone {
@@ -346,7 +359,8 @@ struct BoardView: View {
                 scale: board.priority(of: .chat(chat.id)).scale * shrink,
                 editText: board.editingId == chat.id ? $board.editText : nil,
                 onCommit: { board.commitRename() }, onCancel: { board.cancelRename() },
-                buttons: isLow || board.editingId == chat.id ? [] : chat.buttons)
+                buttons: isLow || board.editingId == chat.id ? [] : chat.buttons,
+                shortcut: board.shortcutNumbers[chat.id])
             .padding(.leading, indent && chat.depth > 0 ? 18 : 0)
             .background(GeometryReader { geometry in
                 Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
@@ -486,7 +500,8 @@ struct BoardView: View {
         }
         ForEach(Array(shown.enumerated()), id: \.element.id) { index, chat in
             ChatRow(chat: chat, isCurrent: chat.id == board.currentId, isUnread: board.isUnread(chat),
-                    isSelected: index == board.selected, scale: board.priority(of: .chat(chat.id)).scale)
+                    isSelected: index == board.selected, scale: board.priority(of: .chat(chat.id)).scale,
+                    shortcut: board.shortcutNumbers[chat.id])
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: WindowFrames.self, value: [chat.id: geometry.frame(in: .global)])
                 })
@@ -855,6 +870,10 @@ final class DictationToggle {
     // Cmd+F: set by the app. Taken only while Claude or the board is in front and the board is showing.
     var isBoardShowing: () -> Bool = { false }
     var onFind: () -> Void = {}
+    // Cmd+1 to Cmd+9 (same conditions as Cmd+F): opens that chat on the board; false lets the key through.
+    var onNumber: (Int) -> Bool = { _ in false }
+    // Cmd held alone, or let go: the board shows or hides each chat's number.
+    var onCommandHeld: (Bool) -> Void = { _ in }
 
     func wantsFind() -> Bool {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
@@ -893,7 +912,7 @@ final class DictationToggle {
     }
 
     init() {
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
             let toggle = Unmanaged<DictationToggle>.fromOpaque(refcon).takeUnretainedValue()
@@ -903,8 +922,24 @@ final class DictationToggle {
             }
             let flags = event.flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl])
             let key = event.getIntegerValueField(.keyboardEventKeycode)
+            if type == .flagsChanged {
+                // Cmd alone shows the numbers; any other modifier, or letting go, hides them. Never held back.
+                let held = flags == .maskCommand
+                DispatchQueue.main.async { MainActor.assumeIsolated { toggle.commandHeld(held) } }
+                return Unmanaged.passUnretained(event)
+            }
+            if type == .keyDown {
+                // Any key pressed with Cmd (Cmd+C, Cmd+Tab...) hides the numbers, as Claude's sidebar does.
+                DispatchQueue.main.async { MainActor.assumeIsolated { toggle.commandHeld(false) } }
+            }
             guard type == .keyDown, flags == .maskCommand,
                   event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else { return Unmanaged.passUnretained(event) }
+            if let number = Shortcuts.number(forKeyCode: key) {
+                guard MainActor.assumeIsolated({ toggle.wantsFind() && toggle.onNumber(number) }) else {
+                    return Unmanaged.passUnretained(event)
+                }
+                return nil
+            }
             if key == DictationToggle.fKey {
                 // Answered at once and handled after, so the tap never waits on the window.
                 guard MainActor.assumeIsolated({ toggle.wantsFind() }) else { return Unmanaged.passUnretained(event) }
@@ -921,6 +956,20 @@ final class DictationToggle {
         if let tap {
             CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
+        }
+    }
+
+    // The numbers show only after Cmd has been held a moment, so a quick Cmd+C never flashes them.
+    private var holdTimer: Timer?
+    func commandHeld(_ held: Bool) {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        guard held else { return onCommandHeld(false) }
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.wantsFind() else { return }
+                self.onCommandHeld(true)
+            }
         }
     }
 
@@ -1112,6 +1161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictation = DictationToggle()
         dictation.isBoardShowing = { [weak self] in self?.panel.isVisible ?? false }
         // Cmd+F searches the board. Pressed again while the search is open, it opens Claude's own Find instead.
+        dictation.onNumber = { [weak self] number in self?.board.openShortcut(number) ?? false }
+        dictation.onCommandHeld = { [weak self] held in self?.board.showShortcuts(held) }
         dictation.onFind = { [weak self] in
             guard let self else { return }
             if self.board.isSearching {
